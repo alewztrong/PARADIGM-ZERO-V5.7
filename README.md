@@ -3,7 +3,7 @@
 
 **A Dynamically Consistent Scenario for Gravitational Capture of the Moon: Computational Evidence and Observational Convergence from 32 Independent Datasets**
 
-> Alexssandro A. — Independent Researcher, Osasco, SP, Brazil  
+> Alexssandro N. — Independent Researcher, Osasco, SP, Brazil  
 > Preprint submitted for peer review — March 2026
 
 ---
