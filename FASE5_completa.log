@@ -1,0 +1,188 @@
+
+█████████████████████████████████████████████████████████████████
+  PARADIGMA ZERO — FASE 5
+  M1: Sim 3D | M2: Auditoria ecc_PM | M3: Obliquidade
+█████████████████████████████████████████████████████████████████
+
+
+=================================================================
+  CANDIDATO: P1-06
+=================================================================
+
+█████████████████████████████████████████████████████████████████
+  MÓDULO 1 — SIM 3D | P1-06
+  a_lua=1.7 e_lua=0.43 inc=10.0°
+█████████████████████████████████████████████████████████████████
+
+  ───────────────────────────────────────────────────────────────
+  RESULTADOS FINAIS 3D — P1-06
+  ───────────────────────────────────────────────────────────────
+  Terra  a_f   : 0.9992 AU  (OK)
+  PM     a_f   : 1.3675 AU  (alvo 1.524)  (FALHOU)
+  PM     ecc_f : 0.2997  (alvo 0.0934 — ver M2)
+  PM     inc_f : 1.847°
+  Lua  r_min   : 646.51 R⊕  (FALHOU)
+  Lua  r_fin   : 72778.18 R⊕
+  Obl. final   : 0.0253°  (3D ativo: NAO)
+  Captura      : NAO
+  Impulso 3D   : nao
+  VÍNCULOS     : Terra=OK | Marte=X | Cap=X | 3D=ATIVO
+  → FALHOU
+
+═════════════════════════════════════════════════════════════════
+  MÓDULO 2 — AUDITORIA ENERGÉTICA ecc_PM | P1-06
+═════════════════════════════════════════════════════════════════
+  a_PM (pós v2.1)     : 1.522700 AU
+  ecc_PM atual (v2.1) : 0.1877
+  ecc_PM alvo (Marte) : 0.0934
+  Delta_e             : 0.0943
+
+  ΔE_exc necessária   : 2.478e+30 J
+  E_viscosa disponível: 1.500e+27 J
+  Razão cobertura     : 0.00x
+  Status              : INSUFICIENTE
+  → Vínculo ecc_PM NÃO coberto — revisar E_viscosa ❌
+═════════════════════════════════════════════════════════════════
+
+═════════════════════════════════════════════════════════════════
+  MÓDULO 3 — OBLIQUIDADE 0°→23.5° | P1-06
+═════════════════════════════════════════════════════════════════
+  ΔT captura          : 50.000 anos  (1.578e+09 s)
+
+  ── TORQUE NECESSÁRIO ─────────────────────────────────
+  ΔL Terra (tilt)     : 2.378e+33 kg·m²/s
+  τ_obliq = ΔL/ΔT     : 1.507e+24 N·m
+  Regime              : GRADUAL
+  Ok (não catastróf.) : SIM
+
+  ── MOMENTO ANGULAR DA LUA ────────────────────────────
+  a_Lua atual         : 60.27 R⊕  (3.840e+08 m)
+  v_Lua orbital       : 1018.9 m/s
+  L_Lua orbital       : 2.872e+34 kg·m²/s
+  inc_Lua (sim)       : 10.0°
+  L_Lua projetada     : 2.829e+34 kg·m²/s
+  Razão L_lua/ΔL      : 11.8940
+  Ok (Lua contribui)  : SIM
+
+  ── CONSISTÊNCIA ENERGÉTICA ───────────────────────────
+  E_torque calculada  : 3.532e+28 J
+  E_tilt (TERMO audit): 3.530e+28 J
+  Razão E/E_TERMO     : 1.000x
+  Ok (0.5–2.0x)       : SIM
+
+  ── VÍNCULO OBLIQUIDADE ───────────────────────────────
+  → FECHADO ✅
+    Torque no regime GRADUAL, Lua contribui com
+    1189.4% de ΔL, energia consistente com TERMO
+═════════════════════════════════════════════════════════════════
+  Salvo: fase5_outputs/FASE5_P1-06.png
+
+█████████████████████████████████████████████████████████████████
+  RESUMO FINAL FASE 5 — P1-06
+█████████████████████████████████████████████████████████████████
+  M1 Terra a_f      : 0.9992 AU  (OK)
+  M1 Marte a_f      : 1.3675 AU  (X)
+  M1 Marte ecc_f    : 0.2997  (M2 verifica)
+  M1 Marte inc_f    : 1.847°
+  M1 Captura Lua    : 646.51 R⊕  (X)
+  M1 Obliq. 3D      : 0.0253°
+  M2 ecc_PM coberto : NAO  (razao=0.00x)
+  M3 Obliq. fechado : SIM  (regime=GRADUAL)
+─────────────────────────────────────────────────────────────────
+  TODOS OS VÍNCULOS : ABERTOS
+█████████████████████████████████████████████████████████████████
+
+
+=================================================================
+  CANDIDATO: P1-03
+=================================================================
+
+█████████████████████████████████████████████████████████████████
+  MÓDULO 1 — SIM 3D | P1-03
+  a_lua=1.65 e_lua=0.4 inc=20.0°
+█████████████████████████████████████████████████████████████████
+
+  ───────────────────────────────────────────────────────────────
+  RESULTADOS FINAIS 3D — P1-03
+  ───────────────────────────────────────────────────────────────
+  Terra  a_f   : 0.9991 AU  (OK)
+  PM     a_f   : 1.3673 AU  (alvo 1.524)  (FALHOU)
+  PM     ecc_f : 0.2996  (alvo 0.0934 — ver M2)
+  PM     inc_f : 1.848°
+  Lua  r_min   : 151.84 R⊕  (FALHOU)
+  Lua  r_fin   : 53474.01 R⊕
+  Obl. final   : 0.0252°  (3D ativo: NAO)
+  Captura      : NAO
+  Impulso 3D   : nao
+  VÍNCULOS     : Terra=OK | Marte=X | Cap=X | 3D=ATIVO
+  → FALHOU
+
+═════════════════════════════════════════════════════════════════
+  MÓDULO 2 — AUDITORIA ENERGÉTICA ecc_PM | P1-03
+═════════════════════════════════════════════════════════════════
+  a_PM (pós v2.1)     : 1.526900 AU
+  ecc_PM atual (v2.1) : 0.3362
+  ecc_PM alvo (Marte) : 0.0934
+  Delta_e             : 0.2428
+
+  ΔE_exc necessária   : 9.725e+30 J
+  E_viscosa disponível: 1.500e+27 J
+  Razão cobertura     : 0.00x
+  Status              : INSUFICIENTE
+  → Vínculo ecc_PM NÃO coberto — revisar E_viscosa ❌
+═════════════════════════════════════════════════════════════════
+
+═════════════════════════════════════════════════════════════════
+  MÓDULO 3 — OBLIQUIDADE 0°→23.5° | P1-03
+═════════════════════════════════════════════════════════════════
+  ΔT captura          : 50.000 anos  (1.578e+09 s)
+
+  ── TORQUE NECESSÁRIO ─────────────────────────────────
+  ΔL Terra (tilt)     : 2.378e+33 kg·m²/s
+  τ_obliq = ΔL/ΔT     : 1.507e+24 N·m
+  Regime              : GRADUAL
+  Ok (não catastróf.) : SIM
+
+  ── MOMENTO ANGULAR DA LUA ────────────────────────────
+  a_Lua atual         : 60.27 R⊕  (3.840e+08 m)
+  v_Lua orbital       : 1018.9 m/s
+  L_Lua orbital       : 2.872e+34 kg·m²/s
+  inc_Lua (sim)       : 20.0°
+  L_Lua projetada     : 2.699e+34 kg·m²/s
+  Razão L_lua/ΔL      : 11.3491
+  Ok (Lua contribui)  : SIM
+
+  ── CONSISTÊNCIA ENERGÉTICA ───────────────────────────
+  E_torque calculada  : 3.532e+28 J
+  E_tilt (TERMO audit): 3.530e+28 J
+  Razão E/E_TERMO     : 1.000x
+  Ok (0.5–2.0x)       : SIM
+
+  ── VÍNCULO OBLIQUIDADE ───────────────────────────────
+  → FECHADO ✅
+    Torque no regime GRADUAL, Lua contribui com
+    1134.9% de ΔL, energia consistente com TERMO
+═════════════════════════════════════════════════════════════════
+  Salvo: fase5_outputs/FASE5_P1-03.png
+
+█████████████████████████████████████████████████████████████████
+  RESUMO FINAL FASE 5 — P1-03
+█████████████████████████████████████████████████████████████████
+  M1 Terra a_f      : 0.9991 AU  (OK)
+  M1 Marte a_f      : 1.3673 AU  (X)
+  M1 Marte ecc_f    : 0.2996  (M2 verifica)
+  M1 Marte inc_f    : 1.848°
+  M1 Captura Lua    : 151.84 R⊕  (X)
+  M1 Obliq. 3D      : 0.0252°
+  M2 ecc_PM coberto : NAO  (razao=0.00x)
+  M3 Obliq. fechado : SIM  (regime=GRADUAL)
+─────────────────────────────────────────────────────────────────
+  TODOS OS VÍNCULOS : ABERTOS
+█████████████████████████████████████████████████████████████████
+
+  CSV salvo: fase5_outputs/fase5_resultados.csv
+
+█████████████████████████████████████████████████████████████████
+  FASE 5 — CONCLUÍDA
+█████████████████████████████████████████████████████████████████
+

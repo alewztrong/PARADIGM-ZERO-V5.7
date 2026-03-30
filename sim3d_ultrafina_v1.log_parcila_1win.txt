@@ -1,0 +1,88 @@
+ 
+███████████████████████████████████████████████████████████████████████████
+█                                                                         █
+█  PARADIGMA ZERO — SIM-3D-ULTRAFINA v1.0                               █
+█  Região ALTA | Centro: a=1.74, e=0.57, inc=3°                        █
+█  APENAS 2.2 R⊕ DO LIMIAR DE CAPTURA!                                   █
+█                                                                         █
+███████████████████████████████████████████████████████████████████████████
+
+[18:48:55] Diretório de saída: sim3d_ultrafina
+[18:48:55] REBOUND versão: 4.6.0
+[18:48:55] 
+[18:48:55] ══════════════════════════════════════════════════════════════════════
+[18:48:55]   SIM-3D-ULTRAFINA: Região ALTA (ao redor de R-2313)
+[18:48:55]   Integrador: IAS15 | T = 500 anos
+[18:48:55]   R_INTERACAO = 400.0 R⊕ | R_CAPTURA = 70.0 R⊕
+[18:48:55]   Centro: a=1.74, e=0.57, inc=3°, Ω=0°, M0=105°
+[18:48:55] ══════════════════════════════════════════════════════════════════════
+[18:48:55]   Grade total: 3125 simulações
+[18:48:55] ══════════════════════════════════════════════════════════════════════
+[18:55:34]   [  100/3125]   3.2% | Cap: 0 | Int: 57 | r_min_best: 106.4 R⊕ | ETA: 3:21:07
+[19:01:24]   [  200/3125]   6.4% | Cap: 0 | Int: 116 | r_min_best: 106.4 R⊕ | ETA: 3:02:34
+[19:07:06]   [  300/3125]   9.6% | Cap: 0 | Int: 177 | r_min_best: 106.4 R⊕ | ETA: 2:51:21
+[19:12:32]   [  400/3125]  12.8% | Cap: 0 | Int: 239 | r_min_best: 106.4 R⊕ | ETA: 2:40:55
+[19:19:03]   [  500/3125]  16.0% | Cap: 0 | Int: 304 | r_min_best: 106.4 R⊕ | ETA: 2:38:16
+[19:21:08]   ◆ MUITO PERTO | UF-0540 | r_min=89.7 R⊕
+[19:23:11]   ◆ MUITO PERTO | UF-0579 | r_min=94.1 R⊕
+[19:24:19]   ◆ MUITO PERTO | UF-0599 | r_min=99.4 R⊕
+[19:24:22]   [  600/3125]  19.2% | Cap: 0 | Int: 369 | r_min_best: 89.7 R⊕ | ETA: 2:29:14
+[19:31:23]   [  700/3125]  22.4% | Cap: 0 | Int: 389 | r_min_best: 89.7 R⊕ | ETA: 2:27:08
+[19:38:32]   [  800/3125]  25.6% | Cap: 0 | Int: 395 | r_min_best: 89.7 R⊕ | ETA: 2:24:13
+[19:46:13]   [  900/3125]  28.8% | Cap: 0 | Int: 400 | r_min_best: 89.7 R⊕ | ETA: 2:21:41
+[19:48:17]   ◆ MUITO PERTO | UF-0929 | r_min=91.3 R⊕
+[19:53:15]   [ 1000/3125]  32.0% | Cap: 0 | Int: 410 | r_min_best: 89.7 R⊕ | ETA: 2:16:42
+[20:00:58]   [ 1100/3125]  35.2% | Cap: 0 | Int: 420 | r_min_best: 89.7 R⊕ | ETA: 2:12:38
+[20:07:54]   [ 1200/3125]  38.4% | Cap: 0 | Int: 430 | r_min_best: 89.7 R⊕ | ETA: 2:06:43
+[20:14:17]   [ 1300/3125]  41.6% | Cap: 0 | Int: 475 | r_min_best: 89.7 R⊕ | ETA: 1:59:51
+[20:20:35]   [ 1400/3125]  44.8% | Cap: 0 | Int: 527 | r_min_best: 89.7 R⊕ | ETA: 1:52:57
+[20:27:12]   [ 1500/3125]  48.0% | Cap: 0 | Int: 578 | r_min_best: 89.7 R⊕ | ETA: 1:46:28
+[20:30:16]   ◆ MUITO PERTO | UF-1551 | r_min=92.0 R⊕
+[20:33:30]   [ 1600/3125]  51.2% | Cap: 0 | Int: 645 | r_min_best: 89.7 R⊕ | ETA: 1:39:41
+[20:36:08]   ◆ MUITO PERTO | UF-1643 | r_min=87.4 R⊕
+[20:37:35]   ◆ MUITO PERTO | UF-1671 | r_min=95.6 R⊕
+[20:39:24]   [ 1700/3125]  54.4% | Cap: 0 | Int: 704 | r_min_best: 87.4 R⊕ | ETA: 1:32:37
+[20:43:23]   ★★★ CANDIDATO COMPLETO #1 | UF-1771 | r_min=56.0 R⊕ | a=1.740 e=0.580 inc=2°
+[20:45:38]   [ 1800/3125]  57.6% | Cap: 1 | Int: 763 | r_min_best: 56.0 R⊕ | ETA: 1:25:55
+[20:49:20]   ◆ MUITO PERTO | UF-1861 | r_min=91.2 R⊕
+[20:51:38]   [ 1900/3125]  60.8% | Cap: 1 | Int: 824 | r_min_best: 56.0 R⊕ | ETA: 1:19:07
+[20:58:09]   [ 2000/3125]  64.0% | Cap: 1 | Int: 869 | r_min_best: 56.0 R⊕ | ETA: 1:12:41
+[21:04:21]   [ 2100/3125]  67.2% | Cap: 1 | Int: 930 | r_min_best: 56.0 R⊕ | ETA: 1:06:06
+[21:10:45]   [ 2200/3125]  70.4% | Cap: 1 | Int: 985 | r_min_best: 56.0 R⊕ | ETA: 0:59:38
+[21:17:19]   [ 2300/3125]  73.6% | Cap: 1 | Int: 1032 | r_min_best: 56.0 R⊕ | ETA: 0:53:14
+---------------------------------------------------------------------------
+KeyboardInterrupt                         Traceback (most recent call last)
+/tmp/ipykernel_310/643627905.py in <cell line: 0>()
+    528 
+    529 if __name__ == "__main__":
+--> 530     main()
+
+3 frames/tmp/ipykernel_310/643627905.py in main()
+    515     t_total_inicio = time.time()
+    516 
+--> 517     capturas = rodar_varredura(arquivo_log)
+    518     analisar_resultados(capturas, arquivo_log)
+    519 
+
+/tmp/ipykernel_310/643627905.py in rodar_varredura(arquivo_log)
+    388             )
+    389 
+--> 390             resultado = rodar_simulacao_termo(sim, CONFIG['t_anos'], CONFIG['t_pos_impulso'])
+    391 
+    392         except Exception as e:
+
+/tmp/ipykernel_310/643627905.py in rodar_simulacao_termo(sim, t_anos, t_pos_impulso)
+    253         while t < t_fim:
+    254             t_next = min(t + dt_check, t_fim)
+--> 255             sim.integrate(t_next)
+    256             t = t_next
+    257 
+
+/usr/local/lib/python3.12/dist-packages/rebound/simulation.py in integrate(self, tmax, exact_finish_time)
+   1423             pass # User caused exit. Do not raise error message
+   1424         if ret_value == 6:
+-> 1425             raise KeyboardInterrupt
+   1426         if ret_value == 7:
+   1427             raise Collision("Two particles collided (d < r1+r2)")
+
+KeyboardInterrupt: 

@@ -1,0 +1,395 @@
+# ============================================================
+# PARADIGMA ZERO — FASE 3 (MULTI-COLAB)
+# TRIAGEM: órbitas solares da Lua que passam perto da Terra
+# v6.6.1 — 4 FIXES APLICADOS (AUDITORIA 2026-03-13)
+# ============================================================
+
+!pip install rebound numpy pandas matplotlib seaborn h5py -q
+
+import rebound
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import itertools, h5py, os, time, sys
+from IPython.display import clear_output
+
+print(f"REBOUND {rebound.__version__} ✅ — Paradigma Zero v6.6.1")
+
+# ══════════════════════════════════════════════════════════════
+# CONFIGURAÇÃO DE PARALELISMO
+# ══════════════════════════════════════════════════════════════
+COLAB_ID     = 1        # ⚠️ MUDE PARA 2 NO OUTRO COLAB
+TOTAL_COLABS = 2
+
+# ══════════════════════════════════════════════════════════════
+# CONSTANTES FÍSICAS — IMUTÁVEIS
+# ══════════════════════════════════════════════════════════════
+M_SUN   = 1.0
+M_TERRA = 3.003e-6
+M_PM    = 3.213e-7
+M_LUA   = 3.694e-8
+M_JUP   = 9.547e-4
+
+A_TERRA = 1.000;  E_TERRA = 0.0167
+A_PM    = 1.368;  E_PM    = 0.30
+A_JUP   = 5.204;  E_JUP   = 0.0489
+R_TERRA = 4.26e-5
+N_PART  = 5
+
+# ══════════════════════════════════════════════════════════════
+# CRITÉRIOS DE TRIAGEM
+# ══════════════════════════════════════════════════════════════
+R_HILL      = A_TERRA * (M_TERRA / 3.0) ** (1.0 / 3.0)
+R_ALERTA    = R_HILL * 2.0
+R_FORTE     = R_HILL * 0.5
+
+R_HILL_SQ   = R_HILL   ** 2
+R_ALERTA_SQ = R_ALERTA ** 2
+R_FORTE_SQ  = R_FORTE  ** 2
+
+print(f"R_Hill   = {R_HILL:.6f} AU")
+print(f"R_Alerta = {R_ALERTA:.6f} AU  (2× Hill — threshold HDF5)")
+print(f"R_Forte  = {R_FORTE:.6f} AU  (0.5× Hill — deep candidate)")
+
+# ══════════════════════════════════════════════════════════════
+# DIRETÓRIOS E CHECKPOINTS
+# ══════════════════════════════════════════════════════════════
+LOG_DIR    = f"logs_triagem_f3_colab{COLAB_ID}"
+CHECKPOINT = f"triagem_fase3_v661_colab{COLAB_ID}.csv"
+HEATMAP    = f"triagem_heatmap_v661_colab{COLAB_ID}.png"
+os.makedirs(LOG_DIR, exist_ok=True)
+
+# ══════════════════════════════════════════════════════════════
+# FIX #4 — GRADE COM e_vals CORRIGIDO PARA a = 1.65/1.70/1.80
+#
+# Condição de cruzamento: q = a*(1-e) <= 1.03
+#   → e >= 1 - (1.03/a)
+#   → a=1.65: e >= 0.3758  → usa e >= 0.38
+#   → a=1.70: e >= 0.3941  → usa e >= 0.40
+#   → a=1.80: e >= 0.4278  → usa e >= 0.43
+#
+# e_vals inclui apenas valores que permitem cruzamento em pelo
+# menos um dos três semi-eixos. Valores abaixo de 0.38 são
+# geometricamente impossíveis para toda a grade → removidos.
+# ══════════════════════════════════════════════════════════════
+a_vals   = [1.65, 1.70, 1.80]
+e_vals   = [0.38, 0.40, 0.43, 0.45, 0.50, 0.55, 0.60]   # FIX #4
+M0_vals  = [0, 45, 90, 135, 180, 225, 270, 315]
+inc_vals = [0, 5, 10, 15, 20, 25]
+
+# Margem de cruzamento: Terra varia 0.983–1.017 AU → faixa ±0.03 AU
+Q_TERRA_MAX = A_TERRA * (1.0 + E_TERRA)   # 1.01670 AU
+Q_TERRA_MIN = A_TERRA * (1.0 - E_TERRA)   # 0.98330 AU
+MARGEM      = 0.013                        # ~1× Hill de folga geométrica
+
+grade_total = []
+for a, e, M0, inc in itertools.product(a_vals, e_vals, M0_vals, inc_vals):
+    q = a * (1.0 - e)
+    Q = a * (1.0 + e)
+    if q <= (Q_TERRA_MAX + MARGEM) and Q >= (Q_TERRA_MIN - MARGEM):
+        grade_total.append({"a_lua": a, "e_lua": e, "M0": M0, "inc_lua": inc})
+
+grade_meu_colab = grade_total[COLAB_ID - 1 :: TOTAL_COLABS]
+
+# ── GUARDA DE SEGURANÇA: aborta antes de rodar grade vazia ───
+assert len(grade_total) > 0, (
+    "ERRO CRÍTICO: grade_total = 0 candidatos!\n"
+    "Nenhuma órbita cruza a faixa terrestre com os parâmetros atuais.\n"
+    "Aumente e_vals ou revise a_vals."
+)
+
+print(f"\nGrade total (filtrada)    : {len(grade_total)}")
+print(f"Carga Colab {COLAB_ID}/{TOTAL_COLABS}          : {len(grade_meu_colab)} sims")
+
+# ══════════════════════════════════════════════════════════════
+# MONTA SIMULAÇÃO
+# ══════════════════════════════════════════════════════════════
+def monta_sim(a_lua: float, e_lua: float,
+              M0_deg: float, inc_deg: float) -> rebound.Simulation:
+    sim = rebound.Simulation()
+    sim.units      = ("yr", "AU", "Msun")
+    sim.integrator = "ias15"
+
+    sim.add(m=M_SUN)
+    sim.add(m=M_TERRA, a=A_TERRA, e=E_TERRA,
+            inc=0.0, Omega=0.0, omega=np.radians(102.9), M=0.0)
+    sim.add(m=M_PM,    a=A_PM,    e=E_PM,
+            inc=0.0, Omega=0.0, omega=0.0, M=0.0)
+    sim.add(m=M_LUA,   a=a_lua,   e=e_lua,
+            inc=np.radians(inc_deg), Omega=0.0, omega=0.0,
+            M=np.radians(M0_deg))
+    sim.add(m=M_JUP,   a=A_JUP,   e=E_JUP,
+            inc=0.0, Omega=0.0, omega=0.0, M=0.0)
+
+    sim.particles[1].r    = R_TERRA
+    sim.collision         = "direct"
+    sim.collision_resolve = "merge"
+    sim.move_to_com()
+    return sim
+
+# ══════════════════════════════════════════════════════════════
+# TRIAGEM — Motor principal
+# ══════════════════════════════════════════════════════════════
+def triagem(a_lua: float, e_lua: float,
+            M0_deg: float, inc_deg: float,
+            t_max: float = 5e4, dt_out: float = 10.0) -> dict:
+
+    sim = monta_sim(a_lua, e_lua, M0_deg, inc_deg)
+
+    tr = {
+        "dist_min_sq"  : float("inf"),
+        "t_periapsis"  : np.nan,
+        "dentro_alerta": False,
+        "dentro_hill"  : False,
+        "dentro_forte" : False,
+        "snap"         : None,
+    }
+
+    def heartbeat(sim_ptr):
+        if sim.N < N_PART:
+            return
+        try:
+            p_t = sim.particles[1]
+            p_l = sim.particles[3]
+            dx  = p_l.x - p_t.x
+            dy  = p_l.y - p_t.y
+            dz  = p_l.z - p_t.z
+            dsq = dx*dx + dy*dy + dz*dz
+
+            if dsq >= tr["dist_min_sq"]:
+                return                          # early-return no não-mínimo
+
+            tr["dist_min_sq"] = dsq
+            tr["t_periapsis"] = sim.t
+
+            tr["dentro_alerta"] = tr["dentro_alerta"] or (dsq < R_ALERTA_SQ)
+            tr["dentro_hill"]   = tr["dentro_hill"]   or (dsq < R_HILL_SQ)
+            tr["dentro_forte"]  = tr["dentro_forte"]  or (dsq < R_FORTE_SQ)
+
+            if dsq < R_ALERTA_SQ:               # snapshot lazy
+                ps = sim.particles[0]
+                pt = sim.particles[1]
+                pm = sim.particles[2]
+                pl = sim.particles[3]
+                pj = sim.particles[4]
+                tr["snap"] = {
+                    "t": sim.t, "dist_LT": dsq ** 0.5,
+                    "Sol_x":ps.x,"Sol_y":ps.y,"Sol_z":ps.z,
+                    "Sol_vx":ps.vx,"Sol_vy":ps.vy,"Sol_vz":ps.vz,"Sol_m":ps.m,
+                    "Terra_x":pt.x,"Terra_y":pt.y,"Terra_z":pt.z,
+                    "Terra_vx":pt.vx,"Terra_vy":pt.vy,"Terra_vz":pt.vz,"Terra_m":pt.m,
+                    "PM_x":pm.x,"PM_y":pm.y,"PM_z":pm.z,
+                    "PM_vx":pm.vx,"PM_vy":pm.vy,"PM_vz":pm.vz,"PM_m":pm.m,
+                    "Lua_x":pl.x,"Lua_y":pl.y,"Lua_z":pl.z,
+                    "Lua_vx":pl.vx,"Lua_vy":pl.vy,"Lua_vz":pl.vz,"Lua_m":pl.m,
+                    "Jup_x":pj.x,"Jup_y":pj.y,"Jup_z":pj.z,
+                    "Jup_vx":pj.vx,"Jup_vy":pj.vy,"Jup_vz":pj.vz,"Jup_m":pj.m,
+                }
+        except Exception:
+            pass
+
+    sim.heartbeat = heartbeat
+
+    t_steps = np.linspace(dt_out, t_max, int(t_max / dt_out))
+    status  = "ESTAVEL"
+
+    for t_target in t_steps:
+        try:
+            sim.integrate(t_target, exact_finish_time=1)
+        except rebound.Encounter:
+            pass
+        except Exception as exc:
+            status = f"ERRO:{type(exc).__name__}"
+            break
+
+        if sim.N < N_PART:
+            status = "COLISAO"
+            break
+
+        pl    = sim.particles[3]
+        r_lua = (pl.x**2 + pl.y**2 + pl.z**2) ** 0.5
+        if r_lua > 6.0:
+            status = "EJETADA"
+            break
+
+    dist_min = (tr["dist_min_sq"] ** 0.5
+                if tr["dist_min_sq"] != float("inf") else -1.0)
+
+    # ── FIX #3 — HDF5 com flush explícito ────────────────────
+    if tr["dentro_alerta"] and tr["snap"] is not None:
+        h5_path = (f"{LOG_DIR}/f3_a{a_lua:.2f}_e{e_lua:.2f}"
+                   f"_M{int(M0_deg)}_i{int(inc_deg)}.h5")
+        try:
+            with h5py.File(h5_path, "w") as hf:
+                hf.attrs["a_lua_i"]       = a_lua
+                hf.attrs["e_lua_i"]       = e_lua
+                hf.attrs["M0"]            = M0_deg
+                hf.attrs["inc_lua_i"]     = inc_deg
+                hf.attrs["status"]        = status
+                hf.attrs["dist_min"]      = dist_min
+                hf.attrs["t_periapsis"]   = float(tr["t_periapsis"])
+                hf.attrs["dentro_alerta"] = int(tr["dentro_alerta"])
+                hf.attrs["dentro_hill"]   = int(tr["dentro_hill"])
+                hf.attrs["dentro_forte"]  = int(tr["dentro_forte"])
+                grp = hf.create_group("periapsis_state")
+                for k, v in tr["snap"].items():
+                    grp.attrs[k] = float(v)
+                hf.flush()                  # FIX #3 — flush antes do close
+        except Exception as exc:
+            print(f"  ⚠️  HDF5 falhou ({h5_path}): {exc}", file=sys.stderr)
+
+    return {
+        "a_lua_i"      : a_lua,
+        "e_lua_i"      : e_lua,
+        "M0"           : M0_deg,
+        "inc_lua_i"    : inc_deg,
+        "status"       : status,
+        "dist_min"     : dist_min,
+        "t_periapsis"  : (float(tr["t_periapsis"])
+                          if not np.isnan(tr["t_periapsis"]) else -1.0),
+        "dentro_alerta": bool(tr["dentro_alerta"]),
+        "dentro_hill"  : bool(tr["dentro_hill"]),
+        "dentro_forte" : bool(tr["dentro_forte"]),
+    }
+
+# ══════════════════════════════════════════════════════════════
+# RUNNER — resume + checkpoint atômico + retry
+# ══════════════════════════════════════════════════════════════
+
+def _salva_checkpoint(records: list, path: str) -> None:
+    """Escrita atômica: tmp → rename. Nunca deixa CSV corrompido."""
+    tmp = path + ".tmp"
+    pd.DataFrame(records).to_csv(tmp, index=False)
+    os.replace(tmp, path)
+
+# Carrega progresso anterior
+if os.path.exists(CHECKPOINT):
+    df_prev = pd.read_csv(CHECKPOINT)
+    # FIX #2 — chave com round(6) evita falso-miss por floating point
+    feitas = set(
+        zip(df_prev.a_lua_i.round(6),
+            df_prev.e_lua_i.round(6),
+            df_prev.M0.astype(int),
+            df_prev.inc_lua_i.astype(int))
+    )
+    resultados = df_prev.to_dict("records")
+    print(f"▶ Retomando Colab {COLAB_ID}: {len(resultados)} sims já salvas")
+else:
+    feitas     = set()
+    resultados = []
+
+pendentes = [
+    g for g in grade_meu_colab
+    if (round(g["a_lua"], 6), round(g["e_lua"], 6),
+        int(g["M0"]),         int(g["inc_lua"])) not in feitas
+]
+total = len(pendentes)
+print(f"Pendentes neste Colab: {total}")
+
+if total == 0:
+    print("✅ Nada a fazer — todas as sims já estão no checkpoint.")
+else:
+    t0_global = time.time()
+
+    for i, g in enumerate(pendentes):
+        t0  = time.time()
+        res = None
+
+        for tentativa in range(2):
+            try:
+                res = triagem(g["a_lua"], g["e_lua"], g["M0"], g["inc_lua"])
+                break
+            except Exception as exc:
+                if tentativa == 1:
+                    res = {
+                        "a_lua_i"      : g["a_lua"],
+                        "e_lua_i"      : g["e_lua"],
+                        "M0"           : g["M0"],
+                        "inc_lua_i"    : g["inc_lua"],
+                        "status"       : f"FALHA:{type(exc).__name__}",
+                        "dist_min"     : -1.0,
+                        "t_periapsis"  : -1.0,
+                        "dentro_alerta": False,
+                        "dentro_hill"  : False,
+                        "dentro_forte" : False,
+                    }
+
+        dt      = time.time() - t0
+        elapsed = time.time() - t0_global
+        eta_min = (elapsed / (i + 1)) * (total - i - 1) / 60
+
+        resultados.append(res)
+
+        # FIX #1 — checkpoint imediato após cada sim
+        _salva_checkpoint(resultados, CHECKPOINT)
+
+        if res["dentro_forte"]:    flag = "  🎯 FORTE  (<0.5× Hill)"
+        elif res["dentro_hill"]:   flag = "  ✅ HILL   (<1.0× Hill)"
+        elif res["dentro_alerta"]: flag = "  ⚠️  ALERTA (<2.0× Hill)"
+        else:                      flag = ""
+
+        clear_output(wait=True)
+        print(f"COLAB {COLAB_ID}/{TOTAL_COLABS} | [{i+1:4d}/{total}]  "
+              f"elapsed={elapsed/60:.1f} min  ETA={eta_min:.1f} min")
+        print(f"  a={g['a_lua']:.2f}  e={g['e_lua']:.2f}  "
+              f"M0={g['M0']:3d}°  inc={g['inc_lua']:2d}°")
+        print(f"  → {res['status']:12s} | dist={res['dist_min']:.6f} AU  "
+              f"({dt:.1f}s){flag}")
+
+    print(f"\n✅ Checkpoint final: {CHECKPOINT}  ({len(resultados)} linhas)")
+
+# ══════════════════════════════════════════════════════════════
+# RELATÓRIO — fonte única: CSV
+# ══════════════════════════════════════════════════════════════
+df_res    = pd.read_csv(CHECKPOINT)
+df_alerta = df_res[df_res["dentro_alerta"] == True]
+df_hill   = df_res[df_res["dentro_hill"]   == True]
+df_forte  = df_res[df_res["dentro_forte"]  == True]
+
+sep = "=" * 58
+print(f"\n{sep}")
+print(f"  TRIAGEM COLAB {COLAB_ID} — {len(df_res)} configurações simuladas")
+print(sep)
+print(f"  Candidatos ALERTA (HDF5 salvo) : {len(df_alerta)}")
+print(f"  Candidatos R_Hill              : {len(df_hill)}")
+print(f"  Candidatos R_Forte             : {len(df_forte)}")
+print(sep)
+
+cols_show = ["a_lua_i","e_lua_i","M0","inc_lua_i",
+             "dist_min","t_periapsis","status"]
+
+if len(df_alerta) > 0:
+    print("\n── TOP 20 candidatos (dist_min crescente) ──")
+    print(df_alerta.sort_values("dist_min")[cols_show]
+          .head(20).to_string(index=False))
+else:
+    print("\n⚠️  Nenhum candidato cruzou as zonas nesta malha.")
+
+# ══════════════════════════════════════════════════════════════
+# HEATMAP
+# ══════════════════════════════════════════════════════════════
+df_plot = df_res[df_res["dist_min"] > 0].copy()
+
+if not df_plot.empty:
+    pivot = df_plot.pivot_table(
+        values="dist_min", index="e_lua_i",
+        columns="a_lua_i", aggfunc="min"
+    )
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sns.heatmap(pivot, annot=True, fmt=".5f", cmap="RdYlGn_r", ax=ax,
+                linewidths=0.4, linecolor="gray",
+                cbar_kws={"label": "dist_min Lua–Terra (AU)"})
+    ax.set_title(
+        f"Paradigma Zero — Fase 3 | Colab {COLAB_ID} (v6.6.1)\n"
+        f"a ∈ {{1.65, 1.70, 1.80}} AU — dist_min mínima por célula",
+        fontsize=11
+    )
+    ax.set_xlabel("Semi-eixo inicial da Lua (AU)")
+    ax.set_ylabel("Excentricidade inicial da Lua")
+    plt.tight_layout()
+    plt.savefig(HEATMAP, dpi=150)
+    plt.show()
+    print(f"Heatmap salvo: {HEATMAP}")
+else:
+    print("⚠️  Sem dados positivos para o heatmap.")

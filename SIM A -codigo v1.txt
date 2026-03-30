@@ -1,0 +1,417 @@
+# ══════════════════════════════════════════════════════════════
+# PARADIGMA ZERO — SIM-A v1.0
+# Fase 4 — Captura da Lua + Deslocamento de Marte
+# Candidatos P1 (dentro_forte=True) — 8 simulações
+# Integrador: IAS15 | N-corpos: 5 (Sol, Terra, PM, Lua, Júpiter)
+# ══════════════════════════════════════════════════════════════
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import rebound
+import os
+
+# ══════════════════════════════════════════════════════════════
+# BLOCO 0 — CONSTANTES
+# ══════════════════════════════════════════════════════════════
+AU    = 1.496e11
+RE    = 6.371e6
+RE_AU = RE / AU
+G_nat = 4 * np.pi**2   # AU³ / (Msun · yr²)
+
+# Massas em Msun
+M_SOL   = 1.0
+M_TERRA = 5.9726e24 / 1.989e30
+M_PM    = 6.417e23  / 1.989e30   # Proto-Marte
+M_LUA   = 7.342e22  / 1.989e30
+M_JUP   = 1.898e27  / 1.989e30
+
+# ══════════════════════════════════════════════════════════════
+# BLOCO 1 — PARÂMETROS FIXOS (Paradigma Zero / V1-AMOSTRAGEM)
+# ══════════════════════════════════════════════════════════════
+# Terra
+A_TERRA   = 1.000
+E_TERRA   = 0.0167
+M0_TERRA  = 0.0          # graus — sincronizado com triagem
+OM_TERRA  = 102.9        # graus — argumento do periélio
+
+# Proto-Marte — fixo em todas as sims
+A_PM      = 1.367981     # AU — Fase 3 output
+E_PM      = 0.30
+M0_PM     = 180.0        # graus
+
+# Júpiter
+A_JUP     = 5.2044
+E_JUP     = 0.0489
+M0_JUP    = 0.0          # graus
+
+# Tempo de integração
+T_TOTAL   = 150.0        # anos — janela generosa para captura
+DT_OUT    = 1.0 / 365.25 # 1 dia em anos
+DECIMATE  = 10           # salva trajetória a cada 10 passos
+
+# Threshold de captura
+R_CAP_RE  = 70.0         # R⊕ — limiar de captura
+R_ESTAB_RE = 80.0        # R⊕ — limiar de estabilização final
+
+# ══════════════════════════════════════════════════════════════
+# BLOCO 2 — CANDIDATOS P1 (V1-AMOSTRAGEM — dentro_forte=True)
+# ══════════════════════════════════════════════════════════════
+candidatos_P1 = [
+    {"id": "P1-01", "a": 1.45, "e": 0.45, "M0": 180, "inc": 10, "dmin_tri": 0.000387},
+    {"id": "P1-02", "a": 1.60, "e": 0.45, "M0": 315, "inc": 10, "dmin_tri": 0.0000841},
+    {"id": "P1-03", "a": 1.65, "e": 0.40, "M0":   0, "inc": 20, "dmin_tri": 0.000290},
+    {"id": "P1-04", "a": 1.65, "e": 0.43, "M0": 135, "inc": 10, "dmin_tri": 0.000320},
+    {"id": "P1-05", "a": 1.65, "e": 0.43, "M0":  45, "inc": 10, "dmin_tri": 0.002690},
+    {"id": "P1-06", "a": 1.70, "e": 0.43, "M0":   0, "inc": 10, "dmin_tri": 0.002651},
+    {"id": "P1-07", "a": 1.80, "e": 0.50, "M0":   0, "inc": 10, "dmin_tri": 0.002426},
+    {"id": "P1-08", "a": 1.80, "e": 0.50, "M0": 135, "inc": 10, "dmin_tri": 0.001990},
+]
+
+# ══════════════════════════════════════════════════════════════
+# BLOCO 3 — FUNÇÃO PRINCIPAL sim_A()
+# ══════════════════════════════════════════════════════════════
+def sim_A(cand, t_total=T_TOTAL, verbose=True):
+    """
+    Roda uma simulação N-corpos (IAS15) para um candidato P1.
+    Retorna dict com todos os resultados e flags de vínculo.
+    """
+    cid   = cand["id"]
+    a_lua = cand["a"]
+    e_lua = cand["e"]
+    M0    = cand["M0"]
+    inc   = cand["inc"]
+
+    if verbose:
+        print(f"\n{'═'*60}")
+        print(f"  SIM-A | {cid} | a={a_lua} e={e_lua} M0={M0}° inc={inc}°")
+        print(f"{'═'*60}")
+
+    # ── Monta simulação ──────────────────────────────────────
+    sim = rebound.Simulation()
+    sim.integrator = "ias15"
+    sim.units = ('yr', 'AU', 'Msun')
+
+    # Sol
+    sim.add(m=M_SOL)
+
+    # Terra — parâmetros orbitais (REBOUND converte para cartesiano)
+    sim.add(
+        m     = M_TERRA,
+        a     = A_TERRA,
+        e     = E_TERRA,
+        omega = np.radians(OM_TERRA),
+        M     = np.radians(M0_TERRA),
+        inc   = 0.0
+    )
+
+    # Proto-Marte — fixo
+    sim.add(
+        m   = M_PM,
+        a   = A_PM,
+        e   = E_PM,
+        M   = np.radians(M0_PM),
+        inc = 0.0
+    )
+
+    # Lua — parâmetros do candidato (órbita solar independente)
+    sim.add(
+        m   = M_LUA,
+        a   = a_lua,
+        e   = e_lua,
+        M   = np.radians(M0),
+        inc = np.radians(inc)
+    )
+
+    # Júpiter
+    sim.add(
+        m   = M_JUP,
+        a   = A_JUP,
+        e   = E_JUP,
+        M   = np.radians(M0_JUP),
+        inc = 0.0
+    )
+
+    sim.move_to_com()
+
+    # Índices das partículas
+    I_SOL, I_TER, I_PM, I_LUA, I_JUP = 0, 1, 2, 3, 4
+
+    # ── Estruturas de saída ──────────────────────────────────
+    steps     = int(t_total / DT_OUT)
+    traj      = {i: {"x": [], "y": []} for i in range(5)}
+
+    r_lua_min    = np.inf
+    capturada    = False
+    t_captura    = None
+    r_pm_captura = None
+    a_pm_captura = None
+    T_pm_captura = None
+    a_pm_hist    = []
+    t_hist       = []
+
+    # ── Loop de integração ───────────────────────────────────
+    for step in range(steps):
+        sim.integrate(sim.t + DT_OUT)
+        p = sim.particles
+
+        pos = np.array([[p[i].x, p[i].y] for i in range(5)])
+        vel = np.array([[p[i].vx, p[i].vy] for i in range(5)])
+
+        # Distância Lua–Terra em R⊕
+        r_lt  = np.linalg.norm(pos[I_LUA] - pos[I_TER])
+        r_lt_RE = r_lt / RE_AU
+
+        # Atualiza mínimo
+        if r_lt_RE < r_lua_min:
+            r_lua_min = r_lt_RE
+
+        # Semi-eixo de PM em tempo real
+        r_pm = np.linalg.norm(pos[I_PM] - pos[I_SOL])
+        v_pm = np.linalg.norm(vel[I_PM])
+        E_pm = 0.5 * v_pm**2 - G_nat * M_SOL / r_pm
+        a_pm = -G_nat * M_SOL / (2 * E_pm) if E_pm < 0 else np.nan
+
+        # Histórico de semi-eixo PM (a cada 30 dias)
+        if step % 30 == 0:
+            a_pm_hist.append(a_pm)
+            t_hist.append(sim.t)
+
+        # Detecção de captura
+        if r_lt_RE < R_CAP_RE and not capturada:
+            capturada    = True
+            t_captura    = sim.t
+            r_pm_captura = r_pm
+            a_pm_captura = a_pm
+            T_pm_captura = np.sqrt(a_pm**3) * 365.25 if not np.isnan(a_pm) else np.nan
+
+            if verbose:
+                print(f"  ✅ CAPTURA em t={sim.t:.3f} anos ({sim.t*365.25:.1f} dias)")
+                print(f"     Lua dist : {r_lt_RE:.2f} R⊕")
+                print(f"     PM r_inst: {r_pm:.4f} AU")
+                print(f"     PM a     : {a_pm:.4f} AU")
+                print(f"     PM T     : {T_pm_captura:.2f} dias")
+
+        # Trajetória decimada
+        if step % DECIMATE == 0:
+            for i in range(5):
+                traj[i]["x"].append(pos[i, 0])
+                traj[i]["y"].append(pos[i, 1])
+
+    # ── Estado final ─────────────────────────────────────────
+    p = sim.particles
+    pos_f = np.array([[p[i].x, p[i].y] for i in range(5)])
+    vel_f = np.array([[p[i].vx, p[i].vy] for i in range(5)])
+
+    # Terra final
+    r_terra_f = np.linalg.norm(pos_f[I_TER] - pos_f[I_SOL])
+    v_terra_f = np.linalg.norm(vel_f[I_TER])
+    E_ter     = 0.5 * v_terra_f**2 - G_nat * M_SOL / r_terra_f
+    a_terra_f = -G_nat * M_SOL / (2 * E_ter)
+
+    # Proto-Marte final
+    r_pm_f    = np.linalg.norm(pos_f[I_PM] - pos_f[I_SOL])
+    v_pm_f    = np.linalg.norm(vel_f[I_PM])
+    E_pm_f    = 0.5 * v_pm_f**2 - G_nat * M_SOL / r_pm_f
+    a_pm_f    = -G_nat * M_SOL / (2 * E_pm_f) if E_pm_f < 0 else np.nan
+    h_pm      = pos_f[I_PM,0]*vel_f[I_PM,1] - pos_f[I_PM,1]*vel_f[I_PM,0]
+    ecc_pm_f  = np.sqrt(max(0, 1 + (2*E_pm_f*h_pm**2)/(G_nat*M_SOL)**2))
+
+    # Lua final (distância à Terra)
+    r_lua_f_RE = np.linalg.norm(pos_f[I_LUA] - pos_f[I_TER]) / RE_AU
+
+    if verbose:
+        print(f"\n{'─'*60}")
+        print(f"  RESULTADOS FINAIS — {cid}")
+        print(f"{'─'*60}")
+        print(f"  Terra  a_f : {a_terra_f:.4f} AU  (alvo 1.000)  {'✅' if abs(a_terra_f-1.0)<0.05 else '❌'}")
+        print(f"  PM     a_f : {a_pm_f:.4f} AU  (alvo 1.524)  {'✅' if abs(a_pm_f-1.524)<0.10 else '❌'}")
+        print(f"  PM     e_f : {ecc_pm_f:.4f}       (ref 0.093)")
+        print(f"  Lua  r_min : {r_lua_min:.2f} R⊕  (< {R_CAP_RE:.0f})  {'✅' if r_lua_min < R_CAP_RE else '❌'}")
+        print(f"  Lua  r_fin : {r_lua_f_RE:.2f} R⊕")
+        print(f"  Captura    : {'✅ SIM' if capturada else '❌ NÃO'}")
+
+    # ── Vínculos obrigatórios ────────────────────────────────
+    v_terra  = abs(a_terra_f - 1.000) < 0.05
+    v_marte  = abs(a_pm_f - 1.524) < 0.10  if not np.isnan(a_pm_f) else False
+    v_captura = r_lua_min < R_CAP_RE
+    # NOTA: obliquidade 0°→23.5° requer sim 3D completa (Fase 5)
+    # Aqui registramos flag como PENDENTE
+    v_obl    = None  # pendente — Fase 5
+
+    passou = v_terra and v_marte and v_captura
+
+    if verbose:
+        print(f"  VÍNCULOS   : Terra={'✅' if v_terra else '❌'} | "
+              f"Marte={'✅' if v_marte else '❌'} | "
+              f"Captura={'✅' if v_captura else '❌'} | "
+              f"Obl=PENDENTE")
+        print(f"  → {'✅ PASSOU' if passou else '❌ FALHOU'}")
+
+    return {
+        "id"           : cid,
+        "a_lua_i"      : a_lua,
+        "e_lua_i"      : e_lua,
+        "M0"           : M0,
+        "inc"          : inc,
+        "dmin_tri"     : cand["dmin_tri"],
+        # resultados
+        "r_lua_min_RE" : r_lua_min,
+        "r_lua_fin_RE" : r_lua_f_RE,
+        "capturada"    : capturada,
+        "t_captura_yr" : t_captura,
+        "t_captura_dias": t_captura * 365.25 if t_captura else None,
+        "a_terra_f"    : a_terra_f,
+        "a_pm_f"       : a_pm_f,
+        "ecc_pm_f"     : ecc_pm_f,
+        "a_pm_captura" : a_pm_captura,
+        "T_pm_captura" : T_pm_captura,
+        # vínculos
+        "v_terra"      : v_terra,
+        "v_marte"      : v_marte,
+        "v_captura"    : v_captura,
+        "v_obl"        : v_obl,
+        "passou"       : passou,
+        # trajetória
+        "traj"         : traj,
+        "a_pm_hist"    : a_pm_hist,
+        "t_hist"       : t_hist,
+    }
+
+# ══════════════════════════════════════════════════════════════
+# BLOCO 4 — LOOP PRINCIPAL sobre P1
+# ══════════════════════════════════════════════════════════════
+resultados = []
+os.makedirs("sima_outputs", exist_ok=True)
+
+print("\n" + "█"*60)
+print("  PARADIGMA ZERO — SIM-A v1.0 — INICIANDO P1 (8 sims)")
+print("█"*60)
+
+for cand in candidatos_P1:
+    res = sim_A(cand, t_total=T_TOTAL, verbose=True)
+    resultados.append(res)
+
+    # Checkpoint CSV após cada sim
+    df_check = pd.DataFrame([{k: v for k, v in r.items()
+                               if k not in ("traj", "a_pm_hist", "t_hist")}
+                              for r in resultados])
+    df_check.to_csv("sima_outputs/sima_P1_resultados.csv", index=False)
+
+# ══════════════════════════════════════════════════════════════
+# BLOCO 5 — RANKING FINAL
+# ══════════════════════════════════════════════════════════════
+df = pd.DataFrame([{k: v for k, v in r.items()
+                    if k not in ("traj", "a_pm_hist", "t_hist")}
+                   for r in resultados])
+
+# Score composto: prioriza captura, depois proximidade dos alvos
+df["score"] = (
+    df["v_captura"].astype(int) * 100 +
+    df["v_terra"].astype(int)   * 50  +
+    df["v_marte"].astype(int)   * 50  +
+    (1 / (df["r_lua_min_RE"] + 1e-6)) * 0.01
+)
+
+df_rank = df.sort_values("score", ascending=False)
+
+print("\n" + "═"*60)
+print("  RANKING FINAL — SIM-A P1")
+print("═"*60)
+cols_print = ["id", "a_lua_i", "e_lua_i", "M0", "inc",
+              "r_lua_min_RE", "a_pm_f", "capturada", "passou", "score"]
+print(df_rank[cols_print].to_string(index=False))
+print("═"*60)
+
+# Candidatos que passaram
+passou_df = df_rank[df_rank["passou"] == True]
+print(f"\n  ✅ Candidatos que passaram todos os vínculos: {len(passou_df)}")
+if len(passou_df) == 0:
+    print("  ⚠️  Nenhum P1 passou — expandir para P2 (864 sims)")
+else:
+    print(passou_df[["id", "a_lua_i", "e_lua_i", "M0", "inc",
+                      "r_lua_min_RE", "a_pm_f"]].to_string(index=False))
+
+# ══════════════════════════════════════════════════════════════
+# BLOCO 6 — PLOTS
+# ══════════════════════════════════════════════════════════════
+def plot_sim(res):
+    cid  = res["id"]
+    traj = res["traj"]
+
+    fig, axes = plt.subplots(1, 3, figsize=(21, 7))
+    fig.patch.set_facecolor("#0a0a0a")
+    colors = ["#FFD700", "#4FC3F7", "#FF6B35", "#E0E0E0", "#C8A2C8"]
+    labels = ["Sol", "Terra", "Proto-Marte", "Lua", "Júpiter"]
+    theta_plot = np.linspace(0, 2 * np.pi, 300)
+
+    # ── Plot 1 — Visão geral do sistema ──
+    ax1 = axes[0]; ax1.set_facecolor("#0d1117")
+    for i in [0, 1, 2, 3]:   # sem Júpiter no plot geral
+        x = np.array(traj[i]["x"]); y = np.array(traj[i]["y"])
+        ax1.plot(x, y, color=colors[i], alpha=0.7, lw=0.8, label=labels[i])
+        ax1.scatter(x[-1], y[-1], color=colors[i], s=60, zorder=5)
+    ax1.plot(np.cos(theta_plot),       np.sin(theta_plot),
+             "--", color="#4FC3F7", alpha=0.2, lw=1)
+    ax1.plot(np.cos(theta_plot)*1.524, np.sin(theta_plot)*1.524,
+             "--", color="#FF6B35", alpha=0.2, lw=1)
+    ax1.set_xlim(-2.2, 2.2); ax1.set_ylim(-2.2, 2.2)
+    ax1.set_xlabel("X (AU)", color="white")
+    ax1.set_ylabel("Y (AU)", color="white")
+    ax1.set_title(f"SIM-A | {cid} — Sistema", color="white")
+    ax1.tick_params(colors="white")
+    ax1.legend(fontsize=7, facecolor="#1a1a2e",
+               edgecolor="white", labelcolor="white")
+    ax1.grid(True, alpha=0.1)
+
+    # ── Plot 2 — Trajetória relativa Lua–Terra ──
+    ax2 = axes[1]; ax2.set_facecolor("#0d1117")
+    x_rel = (np.array(traj[3]["x"]) - np.array(traj[1]["x"])) / RE_AU
+    y_rel = (np.array(traj[3]["y"]) - np.array(traj[1]["y"])) / RE_AU
+    ax2.plot(x_rel, y_rel, color="#E0E0E0", alpha=0.8, lw=0.8)
+    ax2.scatter(x_rel[0],  y_rel[0],  color="lime", s=80, zorder=5, label="T=0")
+    ax2.scatter(x_rel[-1], y_rel[-1], color="red",  s=80, zorder=5,
+                label=f"Final: {res['r_lua_fin_RE']:.1f} R⊕")
+    ax2.scatter(0, 0, color="#4FC3F7", s=150, zorder=5, label="Terra")
+    ax2.plot(np.cos(theta_plot)*60.27, np.sin(theta_plot)*60.27,
+             "--", color="white", alpha=0.3, lw=1, label="Órbita real")
+    ax2.set_xlabel("X (R⊕)", color="white")
+    ax2.set_ylabel("Y (R⊕)", color="white")
+    ax2.set_title(f"Trajetória Lua–Terra | min={res['r_lua_min_RE']:.1f} R⊕", color="white")
+    ax2.tick_params(colors="white")
+    ax2.legend(fontsize=7, facecolor="#1a1a2e",
+               edgecolor="white", labelcolor="white")
+    ax2.grid(True, alpha=0.1)
+
+    # ── Plot 3 — Evolução do semi-eixo de Proto-Marte ──
+    ax3 = axes[2]; ax3.set_facecolor("#0d1117")
+    t_arr  = np.array(res["t_hist"])
+    a_arr  = np.array(res["a_pm_hist"])
+    ax3.plot(t_arr, a_arr, color="#FF6B35", lw=1.2)
+    ax3.axhline(1.367981, color="yellow",  lw=1, ls="--", label="a_PM inicial")
+    ax3.axhline(1.524,    color="#FF6B35", lw=1, ls=":",  label="Marte alvo")
+    if res["t_captura_yr"]:
+        ax3.axvline(res["t_captura_yr"], color="lime", lw=1,
+                    ls="--", label=f"Captura t={res['t_captura_yr']:.1f} yr")
+    ax3.set_xlabel("Tempo (anos)", color="white")
+    ax3.set_ylabel("a Proto-Marte (AU)", color="white")
+    ax3.set_title("Evolução semi-eixo PM", color="white")
+    ax3.tick_params(colors="white")
+    ax3.legend(fontsize=7, facecolor="#1a1a2e",
+               edgecolor="white", labelcolor="white")
+    ax3.grid(True, alpha=0.1)
+
+    plt.tight_layout()
+    fname = f"sima_outputs/SIMA_{cid}.png"
+    plt.savefig(fname, dpi=150, bbox_inches="tight", facecolor="#0a0a0a")
+    plt.show()
+    print(f"  Salvo: {fname}")
+
+# Gera plot para cada candidato
+for res in resultados:
+    plot_sim(res)
+
+print("\n" + "█"*60)
+print("  SIM-A v1.0 — CONCLUÍDO")
+print(f"  CSV salvo em: sima_outputs/sima_P1_resultados.csv")
+print("█"*60)

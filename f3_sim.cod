@@ -1,0 +1,162 @@
+# ============================================================
+# PARADIGMA ZERO — FASE 3 v2 — REBOUND 4.x FIX
+# ============================================================
+
+import rebound
+import numpy as np
+from datetime import datetime
+
+SESSION  = datetime.now().strftime("%Y%m%d_%H%M%S")
+T_MAX    = 100_000
+N_OUT    = 2000
+F_WIN    = 0.60
+
+MMRS = {
+    "2:1": {"p": 2, "q": 1, "a": 1.587401},
+    "3:2": {"p": 3, "q": 2, "a": 1.310371},
+    "5:3": {"p": 5, "q": 3, "a": 1.405721},
+    "8:5": {"p": 8, "q": 5, "a": 1.367981},
+}
+
+E_RANGE  = np.arange(0.05, 0.32, 0.05)
+M0_RANGE = np.arange(0, 360, 30)
+
+# ── Critério de libração ─────────────────────────────────────
+def classifica_phi(phi_arr):
+    phi_mod  = phi_arr % 360
+
+    phi_wrap = np.where(phi_mod > 180, phi_mod - 360, phi_mod)
+    amp_0    = phi_wrap.max() - phi_wrap.min()
+    ctr_0    = float(phi_wrap.mean())
+
+    phi_180  = phi_mod - 180
+    phi_180w = np.where(phi_180 > 180, phi_180 - 360, phi_180)
+    amp_180  = phi_180w.max() - phi_180w.min()
+    ctr_180  = float(phi_180w.mean()) + 180
+
+    if amp_0 < 120:
+        return "LIBRA_0",   float(amp_0),   ctr_0
+    if amp_180 < 120:
+        return "LIBRA_180", float(amp_180), ctr_180
+    return "CIRC", 360.0, float(phi_mod.mean())
+
+# ── Simulação ────────────────────────────────────────────────
+def roda_sim(mmr_name, mmr, e_pm, M0_deg):
+    sim = rebound.Simulation()
+    sim.units = ("yr", "AU", "Msun")
+    sim.integrator = "whfast"
+    sim.dt = 0.05
+
+    sim.add(m=1.0)                                              # Sol [0]
+    sim.add(m=3.003e-6, a=1.0,        e=0.0167,
+            inc=0.0,        Omega=0.0, omega=102.9,
+            M=100.0,        primary=sim.particles[0])          # Terra [1]
+    sim.add(m=6.39e-7,  a=mmr["a"],   e=e_pm,
+            inc=np.radians(1.85), Omega=0.0, omega=0.0,
+            M=np.radians(M0_deg), primary=sim.particles[0])   # Proto-Marte [2]
+    sim.add(m=9.548e-4, a=5.204,      e=0.0489,
+            inc=np.radians(1.3),  Omega=0.0, omega=14.73,
+            M=20.0,               primary=sim.particles[0])   # Júpiter [3]
+
+    sim.move_to_com()
+
+    times   = np.linspace(0, T_MAX, N_OUT)
+    phi_arr = np.zeros(N_OUT)
+
+    for i, t in enumerate(times):
+        sim.integrate(t)
+
+        # ── REBOUND 4.x — API correta ──────────────────────
+        orbits = sim.orbits()    # [Terra, Proto-Marte, Jupiter]
+        o_t    = orbits[0]       # Terra
+        o_m    = orbits[1]       # Proto-Marte
+
+        lam_t  = o_t.l           # longitude média Terra
+        lam_m  = o_m.l           # longitude média Proto-Marte
+        pom_m  = o_m.pomega      # longitude periélio Proto-Marte
+
+        p_res  = mmr["p"]
+        q_res  = mmr["q"]
+        phi    = p_res * lam_m - q_res * lam_t - (p_res - q_res) * pom_m
+        phi_arr[i] = np.degrees(phi)
+
+    i_win = int(N_OUT * (1 - F_WIN))
+    return classifica_phi(phi_arr[i_win:])
+
+# ── Loop principal ───────────────────────────────────────────
+resultados = []
+melhores   = []
+total      = len(MMRS) * len(E_RANGE) * len(M0_RANGE)
+count      = 0
+
+print(f"\n{'='*65}")
+print(f"  PARADIGMA ZERO — FASE 3 v2 FIX | sessao {SESSION}")
+print(f"  {len(MMRS)} MMRs x {len(E_RANGE)} e's x {len(M0_RANGE)} fases")
+print(f"  Total: {total} simulacoes")
+print(f"{'='*65}\n")
+
+for mmr_name, mmr in MMRS.items():
+    print(f"\n  MMR {mmr_name} | a={mmr['a']:.6f} AU")
+    print(f"  {'-'*55}")
+
+    for e_pm in E_RANGE:
+        melhor_amp = 999.0
+        melhor_res = None
+
+        for M0 in M0_RANGE:
+            count += 1
+            tipo, amp, ctr = roda_sim(mmr_name, mmr, e_pm, M0)
+
+            flag = "*** LIBRA ***" if "LIBRA" in tipo else ""
+            print(f"    e={e_pm:.2f} M0={M0:5.1f}° {tipo:10s} "
+                  f"amp={amp:6.1f}° ctr={ctr:6.1f}° {flag}")
+
+            if "LIBRA" in tipo and amp < melhor_amp:
+                melhor_amp = amp
+                melhor_res = {
+                    "mmr":  mmr_name,
+                    "a":    mmr["a"],
+                    "e":    e_pm,
+                    "M0":   M0,
+                    "tipo": tipo,
+                    "amp":  amp,
+                    "ctr":  ctr
+                }
+
+        if melhor_res:
+            melhores.append(melhor_res)
+
+# ── Relatório final ──────────────────────────────────────────
+print(f"\n{'='*65}")
+print(f"  CANDIDATOS COM LIBRACAO")
+print(f"{'='*65}")
+
+if not melhores:
+    print("\n  NENHUMA LIBRACAO ENCONTRADA")
+    print("  Sugestoes:")
+    print("  → E_RANGE ate 0.40")
+    print("  → T_MAX = 500_000")
+    print("  → amp < 150 no classifica_phi")
+else:
+    melhores.sort(key=lambda x: x["amp"])
+    print(f"\n  {'MMR':<6} {'a(AU)':<12} {'e':<6} {'M0':>6} "
+          f"{'tipo':<12} {'amp':>8} {'ctr':>8}")
+    print(f"  {'-'*62}")
+    for r in melhores:
+        print(f"  {r['mmr']:<6} {r['a']:<12.6f} {r['e']:<6.2f} "
+              f"{r['M0']:>6.1f}° {r['tipo']:<12} "
+              f"{r['amp']:>7.1f}° {r['ctr']:>7.1f}°")
+
+    melhor = melhores[0]
+    print(f"\n  ✅ MELHOR CANDIDATO FASE 3:")
+    print(f"     MMR      : {melhor['mmr']}")
+    print(f"     a        : {melhor['a']:.6f} AU")
+    print(f"     e        : {melhor['e']:.2f}")
+    print(f"     M0       : {melhor['M0']:.1f}°")
+    print(f"     Tipo     : {melhor['tipo']}")
+    print(f"     Amplitude: {melhor['amp']:.1f}°")
+    print(f"     Centro   : {melhor['ctr']:.1f}°")
+
+print(f"\n{'='*65}")
+print(f"  sessao {SESSION} | {count}/{total} simulacoes")
+print(f"{'='*65}\n")

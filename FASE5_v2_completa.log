@@ -1,0 +1,231 @@
+
+█████████████████████████████████████████████████████████████████
+  PARADIGMA ZERO — FASE 5 v2
+  [F5-C1] Omega_lua=0  [F5-C2] Darwin-Kaula + Q_evento
+  [F5-C3] DeltaT real da v2.1  [F5-C4] Antartida auditada
+█████████████████████████████████████████████████████████████████
+
+
+=================================================================
+  CANDIDATO: P1-06
+=================================================================
+
+█████████████████████████████████████████████████████████████████
+  MÓDULO 1 v2 — SIM 3D | P1-06  [F5-C1]
+  Omega_lua=0.0° (corrigido) | inc=10.0°
+█████████████████████████████████████████████████████████████████
+
+  ───────────────────────────────────────────────────────────────
+  RESULTADOS FINAIS 3D v2 — P1-06
+  ───────────────────────────────────────────────────────────────
+  Terra  a_f    : 0.9992 AU  (OK)
+  PM     a_f    : 1.3676 AU  (alvo 1.524)  (FALHOU)
+  PM     ecc_f  : 0.2997  (M2 fecha por Darwin-Kaula)
+  PM     inc_f  : 1.849°
+  Lua  r_min    : 820.51 R⊕  (FALHOU)
+  Lua  r_fin    : 60674.56 R⊕
+  Obl. final    : 0.0254°
+  Captura       : NAO
+  Impulso 3D    : nao
+  → FALHOU (ver M2+M3)
+
+═════════════════════════════════════════════════════════════════
+  MÓDULO 2 v2 — DARWIN-KAULA τ_circ | P1-06  [F5-C2]
+═════════════════════════════════════════════════════════════════
+  a_PM (v2.1)          : 1.522700 AU
+  ecc_PM atual (v2.1)  : 0.1877
+  ecc_PM alvo (Marte)  : 0.0934
+  T_orb PM             : 1.879 anos
+
+  ── PARÂMETROS DE MARTE (pré-evento) ──────────────────
+  k2_Marte (evento)    : 0.220  (atual: 0.169)
+  Q_Marte (evento)     : 50    (atual: 90)
+  Núcleo líquido       : dissipação mais eficiente
+  Q/k2 (evento)        : 227.3  (atual: 532.5)
+
+  ── TEMPO DE CIRCULARIZAÇÃO ───────────────────────────
+  τ_e (pré-evento)     : 1.909e+18 anos  (1908652021.255 Gyr)
+  τ_e (Q atual)        : 4.472e+18 anos  (4472344381.166 Gyr)
+  τ_sistema            : 4.50e+09 anos (4.5 Gyr)
+  τ_e < τ_sistema      : NAO
+
+  ── DISSIPAÇÃO DE MARÉ ────────────────────────────────
+  P_maré (potência)    : 7.057e-02 W
+  E_maré total (τ_e)   : 2.125e+24 J
+  Nota: maré secular ≠ TERMO (escalas de tempo distintas)
+  TERMO cobre evento (dias-anos)
+  Darwin-Kaula cobre circularização (Myr-Gyr)
+
+  ── NOTA FÍSICA [F5-C4] ───────────────────────────────
+  Gelo Antártida: E_latente ≈ 8.7e24 J
+  → JÁ contabilizado no TERMO como E_evap=8.8e24 J ✅
+  → Origem física: solidificação polar pós-obliquidade
+
+  ── VÍNCULO ecc_PM ────────────────────────────────────
+  → NAO FECHADO ❌
+    τ_e = 1908652021.255 Gyr > 4.5 Gyr
+═════════════════════════════════════════════════════════════════
+
+═════════════════════════════════════════════════════════════════
+  MÓDULO 3 v2 — OBLIQUIDADE | P1-06  [F5-C3]
+═════════════════════════════════════════════════════════════════
+  ΔT real (v2.1)       : 17.791 anos  (5.614e+08 s)
+  [F5-C3] ΔT corrigido : SIM (era fallback 50 anos)
+
+  ── TORQUE ────────────────────────────────────────────
+  ΔL Terra (tilt)      : 2.378e+33 kg·m²/s
+  τ_obliq = ΔL/ΔT      : 4.236e+24 N·m
+  Regime               : GRADUAL
+  Ok                   : SIM
+
+  ── MOMENTO ANGULAR LUA ───────────────────────────────
+  L_Lua orbital        : 2.872e+34 kg·m²/s
+  inc_Lua              : 10.0°
+  L_Lua projetada      : 2.829e+34 kg·m²/s
+  Razão L_lua/ΔL       : 11.8940
+  Ok (Lua contribui)   : SIM
+
+  ── CONSISTÊNCIA ENERGÉTICA ───────────────────────────
+  E_torque             : 3.532e+28 J
+  E_tilt (TERMO)       : 3.530e+28 J
+  Razão E/E_TERMO      : 1.0005x
+  Ok (0.5–2.0x)        : SIM
+
+  ── VÍNCULO OBLIQUIDADE ───────────────────────────────
+  → FECHADO ✅
+    τ = 4.236e+24 N·m | regime: GRADUAL
+    L_Lua = 11.9x ΔL necessário
+═════════════════════════════════════════════════════════════════
+  Salvo: fase5v2_outputs/FASE5v2_P1-06.png
+
+█████████████████████████████████████████████████████████████████
+  RESUMO FASE 5 v2 — P1-06
+█████████████████████████████████████████████████████████████████
+  [M1] Terra  a_f    : 0.9992 AU  (OK)
+  [M1] Marte  a_f    : 1.3676 AU  (X)
+  [M1] Marte  ecc_f  : 0.2997  (secular via M2)
+  [M1] Marte  inc_f  : 1.849°
+  [M1] Lua  r_min    : 820.51 R_terra  (X)
+  [M1] Obl.  final   : 0.0254°
+  [M2] ecc_PM coberto: NAO  tau_e=1908652021.255 Gyr  Q=50
+  [M3] Obliq. fechado: SIM  regime=GRADUAL  DeltaT=17.791yr
+  [C4] Antartida     : E_latente ja em TERMO ✅
+─────────────────────────────────────────────────────────────────
+  TODOS OS VÍNCULOS  : ABERTOS
+█████████████████████████████████████████████████████████████████
+
+
+=================================================================
+  CANDIDATO: P1-03
+=================================================================
+
+█████████████████████████████████████████████████████████████████
+  MÓDULO 1 v2 — SIM 3D | P1-03  [F5-C1]
+  Omega_lua=0.0° (corrigido) | inc=20.0°
+█████████████████████████████████████████████████████████████████
+
+  ───────────────────────────────────────────────────────────────
+  RESULTADOS FINAIS 3D v2 — P1-03
+  ───────────────────────────────────────────────────────────────
+  Terra  a_f    : 0.9992 AU  (OK)
+  PM     a_f    : 1.3677 AU  (alvo 1.524)  (FALHOU)
+  PM     ecc_f  : 0.2998  (M2 fecha por Darwin-Kaula)
+  PM     inc_f  : 1.849°
+  Lua  r_min    : 349.88 R⊕  (FALHOU)
+  Lua  r_fin    : 62698.31 R⊕
+  Obl. final    : 0.0250°
+  Captura       : NAO
+  Impulso 3D    : nao
+  → FALHOU (ver M2+M3)
+
+═════════════════════════════════════════════════════════════════
+  MÓDULO 2 v2 — DARWIN-KAULA τ_circ | P1-03  [F5-C2]
+═════════════════════════════════════════════════════════════════
+  a_PM (v2.1)          : 1.526900 AU
+  ecc_PM atual (v2.1)  : 0.3362
+  ecc_PM alvo (Marte)  : 0.0934
+  T_orb PM             : 1.887 anos
+
+  ── PARÂMETROS DE MARTE (pré-evento) ──────────────────
+  k2_Marte (evento)    : 0.220  (atual: 0.169)
+  Q_Marte (evento)     : 50    (atual: 90)
+  Núcleo líquido       : dissipação mais eficiente
+  Q/k2 (evento)        : 227.3  (atual: 532.5)
+
+  ── TEMPO DE CIRCULARIZAÇÃO ───────────────────────────
+  τ_e (pré-evento)     : 1.943e+18 anos  (1943132270.730 Gyr)
+  τ_e (Q atual)        : 4.553e+18 anos  (4553138338.515 Gyr)
+  τ_sistema            : 4.50e+09 anos (4.5 Gyr)
+  τ_e < τ_sistema      : NAO
+
+  ── DISSIPAÇÃO DE MARÉ ────────────────────────────────
+  P_maré (potência)    : 2.218e-01 W
+  E_maré total (τ_e)   : 6.800e+24 J
+  Nota: maré secular ≠ TERMO (escalas de tempo distintas)
+  TERMO cobre evento (dias-anos)
+  Darwin-Kaula cobre circularização (Myr-Gyr)
+
+  ── NOTA FÍSICA [F5-C4] ───────────────────────────────
+  Gelo Antártida: E_latente ≈ 8.7e24 J
+  → JÁ contabilizado no TERMO como E_evap=8.8e24 J ✅
+  → Origem física: solidificação polar pós-obliquidade
+
+  ── VÍNCULO ecc_PM ────────────────────────────────────
+  → NAO FECHADO ❌
+    τ_e = 1943132270.730 Gyr > 4.5 Gyr
+═════════════════════════════════════════════════════════════════
+
+═════════════════════════════════════════════════════════════════
+  MÓDULO 3 v2 — OBLIQUIDADE | P1-03  [F5-C3]
+═════════════════════════════════════════════════════════════════
+  ΔT real (v2.1)       : 122.650 anos  (3.871e+09 s)
+  [F5-C3] ΔT corrigido : SIM (era fallback 50 anos)
+
+  ── TORQUE ────────────────────────────────────────────
+  ΔL Terra (tilt)      : 2.378e+33 kg·m²/s
+  τ_obliq = ΔL/ΔT      : 6.145e+23 N·m
+  Regime               : SUAVE
+  Ok                   : SIM
+
+  ── MOMENTO ANGULAR LUA ───────────────────────────────
+  L_Lua orbital        : 2.872e+34 kg·m²/s
+  inc_Lua              : 20.0°
+  L_Lua projetada      : 2.699e+34 kg·m²/s
+  Razão L_lua/ΔL       : 11.3491
+  Ok (Lua contribui)   : SIM
+
+  ── CONSISTÊNCIA ENERGÉTICA ───────────────────────────
+  E_torque             : 3.532e+28 J
+  E_tilt (TERMO)       : 3.530e+28 J
+  Razão E/E_TERMO      : 1.0005x
+  Ok (0.5–2.0x)        : SIM
+
+  ── VÍNCULO OBLIQUIDADE ───────────────────────────────
+  → FECHADO ✅
+    τ = 6.145e+23 N·m | regime: SUAVE
+    L_Lua = 11.3x ΔL necessário
+═════════════════════════════════════════════════════════════════
+  Salvo: fase5v2_outputs/FASE5v2_P1-03.png
+
+█████████████████████████████████████████████████████████████████
+  RESUMO FASE 5 v2 — P1-03
+█████████████████████████████████████████████████████████████████
+  [M1] Terra  a_f    : 0.9992 AU  (OK)
+  [M1] Marte  a_f    : 1.3677 AU  (X)
+  [M1] Marte  ecc_f  : 0.2998  (secular via M2)
+  [M1] Marte  inc_f  : 1.849°
+  [M1] Lua  r_min    : 349.88 R_terra  (X)
+  [M1] Obl.  final   : 0.0250°
+  [M2] ecc_PM coberto: NAO  tau_e=1943132270.730 Gyr  Q=50
+  [M3] Obliq. fechado: SIM  regime=SUAVE  DeltaT=122.650yr
+  [C4] Antartida     : E_latente ja em TERMO ✅
+─────────────────────────────────────────────────────────────────
+  TODOS OS VÍNCULOS  : ABERTOS
+█████████████████████████████████████████████████████████████████
+
+  CSV salvo: fase5v2_outputs/fase5v2_resultados.csv
+
+█████████████████████████████████████████████████████████████████
+  FASE 5 v2 — CONCLUÍDA
+█████████████████████████████████████████████████████████████████
+

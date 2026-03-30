@@ -1,0 +1,282 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import rebound
+
+AU    = 1.496e11
+RE    = 6.371e6
+RE_AU = RE / AU
+
+M_sol   = 1.0
+M_terra = 5.9726e24 / 1.989e30
+M_marte = 6.417e23  / 1.989e30
+M_lua   = 7.342e22  / 1.989e30
+
+masses = np.array([M_sol, M_terra, M_marte, M_lua])
+N = 4
+
+def v_circ(r, m=1.0):
+    return np.sqrt(4 * np.pi**2 * m / r)
+
+r_terra_0 = 0.990
+
+# ── ENTRADA FASE 3 (MMR 8:5, melhor candidato) ──
+r_marte_0  = 1.367981
+e_marte    = 0.30
+M0_marte   = np.radians(180.0)
+
+def mean_to_true_anomaly(M, e, tol=1e-10):
+    E = M.copy() if hasattr(M, 'copy') else float(M)
+    for _ in range(100):
+        dE = (M - E + e * np.sin(E)) / (1 - e * np.cos(E))
+        E += dE
+        if abs(dE) < tol:
+            break
+    nu = 2 * np.arctan2(np.sqrt(1+e)*np.sin(E/2),
+                        np.sqrt(1-e)*np.cos(E/2))
+    return nu
+
+nu_marte = mean_to_true_anomaly(M0_marte, e_marte)
+
+p_marte      = r_marte_0 * (1 - e_marte**2)
+r_marte_inst = p_marte / (1 + e_marte * np.cos(nu_marte))
+x_marte      = r_marte_inst * np.cos(nu_marte)
+y_marte      = r_marte_inst * np.sin(nu_marte)
+
+v_marte_orb = np.sqrt(4 * np.pi**2 * M_sol / p_marte)
+vx_marte    = -v_marte_orb * np.sin(nu_marte)
+vy_marte    =  v_marte_orb * (e_marte + np.cos(nu_marte))
+
+v_terra   = v_circ(r_terra_0)
+r_lua_AU  = 80.0 * RE_AU
+v_lua_rel = v_circ(r_lua_AU, M_terra) * 0.85
+v_lua_abs = v_terra + v_lua_rel
+
+# ── VERIFICAÇÃO DO LAYOUT ─────────────────────────────────────
+print(f"{'═'*55}")
+print(f"  VERIFICAÇÃO DO LAYOUT")
+print(f"  Sol  : pos=[0. 0.]  vel=[0. 0.]")
+print(f"  Terra: pos=[{r_terra_0}, 0.]  vel=[0., {v_terra:.8f}]")
+print(f"  Marte: pos=[{x_marte:.7f}, {y_marte:.7f}]  vel=[{vx_marte:.8f}, {vy_marte:.8f}]")
+print(f"  Lua  : pos=[{r_terra_0 + r_lua_AU:.7f}, 0.]  vel=[0., {v_lua_abs:.7f}]")
+print(f"{'═'*55}")
+
+# ── DIAGNÓSTICO RÁPIDO ────────────────────────────────────────
+G_nat       = 4 * np.pi**2
+acc_terra_x = -G_nat * M_sol / r_terra_0**2
+acc_esp     = -G_nat * M_sol / r_terra_0**2
+print(f"  acc Terra calculada : [{acc_terra_x:.4f}, 0.0]")
+print(f"  acc Terra esperada  : [{acc_esp:.4f}, 0.0]")
+print(f"  {'✅ OK' if abs(acc_terra_x - acc_esp) < 0.01 else '❌ AINDA ERRADO'}")
+print(f"{'═'*55}")
+
+# ── INTEGRADOR REBOUND IAS15 ──────────────────────────────────
+sim = rebound.Simulation()
+sim.integrator = "ias15"
+sim.units = ('yr', 'AU', 'Msun')
+
+sim.add(m=M_sol,   x=0.,                 y=0.,      vx=0.,       vy=0.)
+sim.add(m=M_terra, x=r_terra_0,          y=0.,      vx=0.,       vy=v_terra)
+sim.add(m=M_marte, x=x_marte,            y=y_marte, vx=vx_marte, vy=vy_marte)
+sim.add(m=M_lua,   x=r_terra_0+r_lua_AU, y=0.,      vx=0.,       vy=v_lua_abs)
+
+sim.move_to_com()
+
+# ── PARÂMETROS DE TEMPO ───────────────────────────────────────
+t_total  = 10.0                   # anos — duração total do cenário
+t_min    = 20.0  / 365.25         # 20 dias em anos  — janela mínima do evento
+t_max    = 120.0 / 365.25         # 120 dias em anos — janela máxima do evento
+dt_out   = 1.0 / (365.25 * 24)
+steps    = int(t_total / dt_out)
+decimate = 24
+
+print(f"  t_total : {t_total} anos")
+print(f"  t_min   : {t_min*365.25:.0f} dias")
+print(f"  t_max   : {t_max*365.25:.0f} dias")
+print(f"  Rodando {steps:,} passos...")
+
+# ── VARIÁVEIS DE CONTROLE ─────────────────────────────────────
+traj      = {i: {'x':[], 'y':[]} for i in range(N)}
+r_lua_min = np.inf
+capturada = False
+
+t_captura       = None
+r_lua_captura   = None
+r_marte_captura = None
+a_marte_captura = None
+T_marte_captura = None
+
+# ── LOOP DE INTEGRAÇÃO ────────────────────────────────────────
+for step in range(steps):
+    sim.integrate(sim.t + dt_out)
+
+    particles = sim.particles
+    pos = np.array([[p.x, p.y] for p in particles])
+    vel = np.array([[p.vx, p.vy] for p in particles])
+
+    r_lt_RE = np.linalg.norm(pos[3] - pos[1]) / RE_AU
+
+    if r_lt_RE < r_lua_min:
+        r_lua_min = r_lt_RE
+
+    r_m = np.linalg.norm(pos[2] - pos[0])
+    v_m = np.linalg.norm(vel[2])
+    E_m = 0.5 * v_m**2 - G_nat * M_sol / r_m
+    a_m = -G_nat * M_sol / (2 * E_m)
+    T_m = np.sqrt(a_m**3) * 365.25
+
+    # ── CAPTURA — SEMPRE REGISTRADA ───────────────────────────
+    if r_lt_RE < 70 and not capturada:
+        capturada       = True
+        t_captura       = sim.t
+        r_lua_captura   = r_lt_RE
+        r_marte_captura = r_m
+        a_marte_captura = a_m
+        T_marte_captura = T_m
+
+        t_dias = t_captura * 365.25
+
+        print(f"\n{'═'*55}")
+        print(f"  EVENTO DE CAPTURA REGISTRADO")
+        print(f"{'═'*55}")
+        print(f"  t_captura : {t_dias:.2f} dias")
+        print(f"  Lua       : {r_lt_RE:.2f} R⊕")
+        print(f"  Marte r   : {r_m:.4f} AU")
+        print(f"  Marte a   : {a_m:.4f} AU")
+        print(f"  Marte T   : {T_m:.2f} dias")
+        print(f"{'─'*55}")
+
+        # ── COMPARAÇÃO COM JANELA — SÓ INFORMAÇÃO ─────────────
+        if t_dias < t_min * 365.25:
+            print(f"  Janela    : ⚠️  antes de t_min ({t_min*365.25:.0f} dias)")
+        elif t_dias <= t_max * 365.25:
+            print(f"  Janela    : ✅  dentro de t_min/t_max")
+        else:
+            print(f"  Janela    : ⚠️  após t_max ({t_max*365.25:.0f} dias)")
+        print(f"{'═'*55}")
+
+    if step % decimate == 0:
+        for i in range(N):
+            traj[i]['x'].append(pos[i, 0])
+            traj[i]['y'].append(pos[i, 1])
+
+# ── RESULTADOS FINAIS ─────────────────────────────────────────
+particles = sim.particles
+pos_f = np.array([[p.x, p.y] for p in particles])
+vel_f = np.array([[p.vx, p.vy] for p in particles])
+
+r_t = np.linalg.norm(pos_f[1] - pos_f[0])
+r_m = np.linalg.norm(pos_f[2] - pos_f[0])
+r_l = np.linalg.norm(pos_f[3] - pos_f[1]) / RE_AU
+
+print(f"\n{'═'*55}")
+print(f"  RESULTADOS FINAIS")
+print(f"{'═'*55}")
+print(f"  Terra  : {r_t:.4f} AU  Δ={abs(r_t-1.000)/1.000*100:.3f}%  {'✅' if abs(r_t-1.0)<0.05 else '⚠️'}")
+print(f"  Marte  : {r_m:.4f} AU  Δ={abs(r_m-1.524)/1.524*100:.3f}%  {'✅' if abs(r_m-1.524)<0.1 else '⚠️'}")
+print(f"  Lua    : {r_l:.2f} R⊕  Δ={abs(r_l-60.27)/60.27*100:.2f}%  {'✅' if abs(r_l-60.27)<25 else '⚠️'}")
+print(f"  Lua mín: {r_lua_min:.2f} R⊕")
+print(f"{'─'*55}")
+
+if not capturada:
+    print(f"  Captura : ❌ NÃO OCORREU em {t_total} anos")
+else:
+    t_dias = t_captura * 365.25
+    print(f"  Captura : ✅ {t_dias:.2f} dias")
+    print(f"  Lua cap : {r_lua_captura:.2f} R⊕")
+print(f"{'═'*55}")
+
+# ── ESTADO DA LUA NO MOMENTO FINAL ───────────────────────────
+vx_T = particles[1].vx; vy_T = particles[1].vy
+vx_L = particles[3].vx; vy_L = particles[3].vy
+x_T  = particles[1].x;  y_T  = particles[1].y
+x_L  = particles[3].x;  y_L  = particles[3].y
+
+v_lua_mag = np.sqrt(vx_L**2 + vy_L**2)
+vx_rel    = vx_L - vx_T
+vy_rel    = vy_L - vy_T
+v_rel_mag = np.sqrt(vx_rel**2 + vy_rel**2)
+theta     = np.degrees(np.arctan2(y_L - y_T, x_L - x_T))
+r_rel_RE  = np.sqrt((x_L-x_T)**2 + (y_L-y_T)**2) / RE_AU
+
+print(f"  v_lua absoluta   : {v_lua_mag:.5f} AU/ano")
+print(f"  v_lua relativa   : {v_rel_mag:.5f} AU/ano")
+print(f"  ângulo Lua       : {theta:.2f}°")
+print(f"  distância final  : {r_rel_RE:.2f} R⊕")
+
+# ── MARTE FINAL — ENERGIA ORBITAL ────────────────────────────
+pos_marte_f = np.array([particles[2].x,  particles[2].y])
+vel_marte_f = np.array([particles[2].vx, particles[2].vy])
+pos_sol_f   = np.array([particles[0].x,  particles[0].y])
+
+r_marte_f = np.linalg.norm(pos_marte_f - pos_sol_f)
+v_marte_f = np.linalg.norm(vel_marte_f)
+E_marte   = 0.5 * v_marte_f**2 - G_nat * M_sol / r_marte_f
+a_marte_f = -G_nat * M_sol / (2 * E_marte)
+T_marte_f = np.sqrt(a_marte_f**3) * 365.25
+h_marte   = pos_marte_f[0]*vel_marte_f[1] - pos_marte_f[1]*vel_marte_f[0]
+ecc_marte = np.sqrt(1 + (2 * E_marte * h_marte**2) / (G_nat * M_sol)**2)
+
+print(f"\n{'═'*55}")
+print(f"  MARTE — ÓRBITA FINAL (por energia orbital)")
+print(f"{'═'*55}")
+print(f"  pos_marte_f : {pos_marte_f} AU")
+print(f"  vel_marte_f : {vel_marte_f} AU/ano")
+print(f"  r_inst      : {r_marte_f:.4f} AU")
+print(f"  v_inst      : {v_marte_f:.4f} AU/ano")
+
+# ── MARTE NO MOMENTO DA CAPTURA ───────────────────────────────
+print(f"\n{'═'*55}")
+print(f"  MARTE — NO MOMENTO DA CAPTURA")
+print(f"{'═'*55}")
+if t_captura is not None:
+    print(f"  t_captura   = {t_captura*365.25:.2f} dias")
+    print(f"  r_inst      = {r_marte_captura:.4f} AU")
+    print(f"  a (semi-eixo) = {a_marte_captura:.4f} AU")
+    print(f"  a observado   = 1.5237 AU  (ref. atual — só comparação)")
+    print(f"  erro a        = {abs(a_marte_captura-1.5237)/1.5237*100:.2f}%")
+    print(f"  T calculado   = {T_marte_captura:.2f} dias")
+    print(f"  T observado   = 686.97 dias  (ref. atual — só comparação)")
+    print(f"  erro T        = {abs(T_marte_captura-686.97)/686.97*100:.2f}%")
+else:
+    print(f"  Captura não ocorreu — sem dados de Marte no evento")
+print(f"{'═'*55}")
+
+# ── PLOTS ─────────────────────────────────────────────────────
+fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+fig.patch.set_facecolor('#0a0a0a')
+colors     = ['#FFD700','#4FC3F7','#FF6B35','#E0E0E0']
+labels     = ['Sol','Terra','Marte','Lua']
+theta_plot = np.linspace(0, 2*np.pi, 300)
+
+ax1 = axes[0]; ax1.set_facecolor('#0d1117')
+for i in range(N):
+    x = np.array(traj[i]['x']); y = np.array(traj[i]['y'])
+    ax1.plot(x, y, color=colors[i], alpha=0.7, lw=0.9, label=labels[i])
+    ax1.scatter(x[-1], y[-1], color=colors[i], s=60, zorder=5)
+ax1.plot(np.cos(theta_plot),       np.sin(theta_plot),       '--', color='#4FC3F7', alpha=0.2, lw=1)
+ax1.plot(np.cos(theta_plot)*1.524, np.sin(theta_plot)*1.524, '--', color='#FF6B35', alpha=0.2, lw=1)
+ax1.set_xlim(-2,2); ax1.set_ylim(-2,2)
+ax1.set_xlabel('X (AU)', color='white'); ax1.set_ylabel('Y (AU)', color='white')
+ax1.set_title('SIM-A — N-Corpos IAS15', color='white')
+ax1.tick_params(colors='white')
+ax1.legend(fontsize=7, facecolor='#1a1a2e', edgecolor='white', labelcolor='white')
+ax1.grid(True, alpha=0.1)
+
+ax2 = axes[1]; ax2.set_facecolor('#0d1117')
+x_rel = (np.array(traj[3]['x']) - np.array(traj[1]['x'])) / RE_AU
+y_rel = (np.array(traj[3]['y']) - np.array(traj[1]['y'])) / RE_AU
+ax2.plot(x_rel, y_rel, color='#E0E0E0', alpha=0.8, lw=1)
+ax2.scatter(x_rel[0],  y_rel[0],  color='lime', s=80, zorder=5, label='T=0')
+ax2.scatter(x_rel[-1], y_rel[-1], color='red',  s=80, zorder=5, label=f'Final:{r_l:.1f} R⊕')
+ax2.scatter(0, 0, color='#4FC3F7', s=150, zorder=5, label='Terra')
+ax2.plot(np.cos(theta_plot)*60.27, np.sin(theta_plot)*60.27, '--', color='white', alpha=0.3, lw=1, label='Real')
+ax2.set_xlabel('X (R⊕)', color='white'); ax2.set_ylabel('Y (R⊕)', color='white')
+ax2.set_title('Captura da Lua', color='white')
+ax2.tick_params(colors='white')
+ax2.legend(fontsize=7, facecolor='#1a1a2e', edgecolor='white', labelcolor='white')
+ax2.grid(True, alpha=0.1)
+
+plt.tight_layout()
+plt.savefig('SIM_A_ias15.png', dpi=150, bbox_inches='tight', facecolor='#0a0a0a')
+plt.show()
+print("  Salvo: SIM_A_ias15.png")

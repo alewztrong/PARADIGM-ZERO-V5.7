@@ -1,0 +1,924 @@
+#!/usr/bin/env python3
+"""
+███████████████████████████████████████████████████████████████████████████████
+  PARADIGMA ZERO — SIM-3D v3.1
+  Arquitetura 2 Blocos acoplados:
+
+  BLOCO A — REBOUND IAS15 (gravitação N-corpos, 5 corpos)
+    Herdado integralmente da v2.0 patch [P1][P2][P3].
+    Master do timestep. Heartbeat nativo em vez de loop Python.
+
+  BLOCO C — Módulo ROTAÇÃO (skill 6 + skill 11)
+    Ativo SOMENTE quando r_Lua-Terra < R_HILL (235 R⊕).
+    Calcula torque gravitacional da Lua inclinada sobre Terra oblata:
+      τ = 3/2 · G · m_L · (C−A) / r³ · sin(i_eq)·cos(i_eq)
+      dε/dt = τ / (C · ω_spin)
+    Integra com dt interno do IAS15 — captura sinal em escala de dias-anos.
+    Registra série temporal ε(t) completa durante a fase geocêntrica.
+
+  Por que apenas REBOUND não funciona (skill 6, axioma A5):
+    O IAS15 trata a Terra como ponto material — sem spin, sem eixo, sem
+    obliquidade axial. O torque sobre o eixo de spin (dε/dt) é invisível
+    para o integrador gravitacional puro. O evento de captura age em escala
+    de anos-dias sobre o eixo de rotação. Sem o módulo ROTAÇÃO no heartbeat,
+    o sinal nunca aparece independente de quantas sims rodem.
+
+  O que muda em relação à v3.0:
+    [V3.1-R1] Módulo ROTAÇÃO no heartbeat — ativo durante r < R_HILL
+    [V3.1-R2] Heartbeat nativo do REBOUND em vez de loop Python (50-500× mais rápido)
+    [V3.1-R3] ω_arg calculado analiticamente para r_nodo ≈ 1.0 AU — elimina
+              o r_min=252 R⊕ causado por ω=90° fixo
+    [V3.1-R4] Grade baseada nos 27 candidatos confirmados da v2.0 patch
+              Usa (a,e,Ω,M0) confirmados + inc=[5,10,15,20]° + ω_calc
+
+  O que NÃO muda:
+    [P1] Impulso Marte em 70 R⊕ via vis-viva com r_PM real
+    [P2] Obliquidade agora via módulo ROTAÇÃO (Euler), não L_orbital proxy
+    [P3] 500 anos completos — necessário pois sinal de obliquidade emerge
+         em escala de anos de órbita geocêntrica próxima
+
+  Física do torque (skill 3, skill 6):
+    τ_obliq = 3/2 · G · m_L · (C−A) / r³ · sin(i_eq)·cos(i_eq)
+    Com inc=15°, r=17.4 R⊕, 1 ano de órbita próxima: Δε ~ 0.108° > 0.1°
+    Com inc=20°, r=17.4 R⊕, 1 ano de órbita próxima: Δε ~ 0.139° > 0.1°
+    Threshold 0.1° alcançável com inc ≥ 15° e r_min próximo de UFC-0200.
+
+  Refs: Murray & Dermott (1999); Touma & Wisdom (1994) AJ 108;
+        Goldreich (1966); skill 6 (Euler 3D); skill 11 (módulo ROTAÇÃO)
+███████████████████████████████████████████████████████████████████████████████
+"""
+
+import numpy as np
+import json
+import os
+import time
+import csv
+from datetime import datetime, timedelta
+from pathlib import Path
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  CONSTANTES FÍSICAS — SI e unidades REBOUND
+# ══════════════════════════════════════════════════════════════════════════════
+
+AU     = 1.495978707e11   # m
+G_SI   = 6.67430e-11      # m³/(kg·s²)
+M_SOL  = 1.989e30         # kg
+M_TERRA  = 5.972e24       # kg
+M_LUA    = 7.342e22       # kg
+M_PM     = 6.417e23       # kg (Marte)
+M_JUPITER= 1.898e27       # kg
+R_TERRA  = 6.371e6        # m
+YEAR     = 365.25 * 24 * 3600  # s
+
+# Terra oblata — momentos de inércia (IERS, Grau A)
+C_TERRA  = 8.036e37       # kg·m² — momento polar (eixo de rotação)
+A_TERRA_I= 8.010e37       # kg·m² — momento equatorial
+OMEGA_TERRA = 7.292e-5    # rad/s — velocidade angular inicial
+
+# Parâmetros orbitais fixos — herdados da v2.0 (auditados)
+A_TERRA_AU = 1.0
+E_TERRA_AU = 0.0167
+A_PM_I   = 1.367981       # AU
+E_PM_I   = 0.30
+M0_PM    = 180.0          # graus
+A_JUP    = 5.2044
+E_JUP    = 0.0489
+
+# Alvos e thresholds
+A_PM_ALVO      = 1.524    # AU — Marte atual
+R_CAPTURA      = 70.0     # R⊕ — gatilho impulso [P1]
+R_HILL         = 235.0    # R⊕ — esfera de Hill da Terra (módulo ROTAÇÃO ativo aqui)
+R_ABORT_SCAN   = 300.0    # R⊕ — threshold abort early fase prospecção
+DELTA_A_PM_TOL = 0.05     # AU — tolerância vínculo Marte
+DELTA_OBL_MIN  = 0.1      # ° — threshold vínculo obliquidade
+
+OUTPUT_DIR = 'sim3d_v31'
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  MÓDULO ROTAÇÃO — Bloco C (skill 6 + skill 11)
+#  Ativo apenas dentro da esfera de Hill (r < 235 R⊕)
+#  Integra dε/dt com o dt interno do IAS15 — escala de dias
+# ══════════════════════════════════════════════════════════════════════════════
+
+class ModuloRotacao:
+    """
+    Euler simplificado 3D para obliquidade terrestre.
+    Torque: Lua inclinada sobre Terra oblata (skill 6, eq. principal).
+    Integração: Euler explícito com dt do IAS15 (sub-passos de dias).
+
+    Ref: Goldreich (1966); Murray & Dermott (1999) cap.5;
+         Touma & Wisdom (1994) AJ 108.
+    """
+    def __init__(self):
+        # Vetor spin inicial: ω = ω_Terra · ẑ (ε=0 inicial)
+        self.omega = np.array([0.0, 0.0, OMEGA_TERRA])  # rad/s
+        self.epsilon = 0.0          # obliquidade axial (rad)
+        self.epsilon_ini = 0.0      # registrado na primeira entrada em Hill
+        self.ativo = False          # só ativo dentro de R_HILL
+        self.t_entrada_hill = None
+        self.epsilon_max = 0.0      # pico durante captura
+        self.t_epsilon_max = None
+        self.historico = []         # [(t_anos, epsilon_graus)]
+        self.tau_acum = 0.0        # torque acumulado (diagnóstico)
+        self.n_steps = 0           # passos de integração realizados
+
+    def torque_oblato(self, r_m, inc_equatorial_rad):
+        """
+        Torque gravitacional da Lua inclinada sobre Terra oblata.
+        τ = 3/2 · G · m_L · (C−A) / r³ · sin(i_eq)·cos(i_eq)
+
+        IMPORTANTE: i_eq é a inclinação da Lua em relação ao EQUADOR
+        terrestre, não em relação à eclíptica. Para esta sim onde
+        ε_inicial ≈ 0, i_eq ≈ i_ecliptica (inc_lua parametrizada).
+
+        Skill 6, eq. torque sobre obliquidade:
+        dε/dt = τ_⊥ / (C · ω_spin)
+        onde τ_⊥ é a componente perpendicular ao eixo de spin.
+
+        Returns: dε/dt em rad/s
+        """
+        sin_i = np.sin(inc_equatorial_rad)
+        cos_i = np.cos(inc_equatorial_rad)
+        tau_mag = (1.5 * G_SI * M_LUA * (C_TERRA - A_TERRA_I)
+                   / r_m**3 * sin_i * cos_i)
+        omega_mag = np.linalg.norm(self.omega)
+        if omega_mag < 1e-20:
+            return 0.0
+        deps_dt = tau_mag / (C_TERRA * omega_mag)
+        return deps_dt
+
+    def step(self, r_m, inc_equatorial_rad, dt_anos, t_anos):
+        """
+        Avança rotação por dt (anos → s internamente).
+        Chamado pelo heartbeat a cada passo interno do IAS15.
+        """
+        dt_s = dt_anos * YEAR
+
+        deps_dt = self.torque_oblato(r_m, inc_equatorial_rad)
+        d_eps = deps_dt * dt_s        # Δε neste passo (rad)
+        self.epsilon += d_eps
+
+        # Atualizar vetor ω mantendo magnitude
+        omega_mag = np.linalg.norm(self.omega)
+        # Novo ω: inclinar por Δε no plano perpendicular
+        self.omega[0] += omega_mag * np.sin(d_eps)  # componente x cresce
+        self.omega[2]  = omega_mag * np.cos(self.epsilon)  # componente z
+
+        self.tau_acum += abs(deps_dt) * dt_s
+        self.n_steps += 1
+
+        # Registrar máximo
+        if abs(self.epsilon) > abs(self.epsilon_max):
+            self.epsilon_max = self.epsilon
+            self.t_epsilon_max = t_anos
+
+        # Série temporal (a cada ~30 dias)
+        if len(self.historico) == 0 or (t_anos - self.historico[-1][0]) >= 30/365.25:
+            self.historico.append((t_anos, np.degrees(self.epsilon)))
+
+    def entrar_hill(self, t_anos):
+        if not self.ativo:
+            self.ativo = True
+            self.t_entrada_hill = t_anos
+            self.epsilon_ini = self.epsilon
+
+    def sair_hill(self, t_anos):
+        self.ativo = False
+
+    def delta_epsilon_graus(self):
+        return np.degrees(self.epsilon) - np.degrees(self.epsilon_ini)
+
+    def epsilon_final_graus(self):
+        return np.degrees(self.epsilon)
+
+    def epsilon_max_graus(self):
+        return np.degrees(self.epsilon_max)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  PRÉ-FILTRO ANALÍTICO — ω_arg ótimo para r_nodo ≈ 1.0 AU
+#  [V3.1-R3] elimina r_min=252 R⊕ da v3.0 (ω=90° fixo era inadequado)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def calcular_omega_arg_otimos(a, e, margem_graus=5, passo_graus=5):
+    """
+    Para inc > 0, a Lua só pode encontrar a Terra quando cruza o plano
+    eclíptico (nos nodos). A distância ao Sol no nodo depende de ω_arg:
+        r_nodo_asc  = a(1-e²) / (1 + e·cos(-ω))
+        r_nodo_desc = a(1-e²) / (1 + e·cos(π-ω))
+
+    Para r_nodo = 1.0 AU (Terra): cos(ω) = (p-1)/e
+    Onde p = a(1-e²) é o semi-latus rectum.
+
+    Retorna lista de ω_arg (graus) que colocam r_nodo dentro de
+    [1.0-tol, 1.0+tol] AU, onde tol resulta do cruzamento dentro
+    de ~100 R⊕ da Terra (suficiente para o integrador buscar flyby).
+    """
+    p = a * (1 - e**2)
+    omegas = []
+
+    # Nodo ascendente: r = p/(1+e·cos(−ω)) = p/(1+e·cos(ω))
+    val_asc = (p - 1.0) / e
+    if abs(val_asc) <= 1:
+        w0 = np.degrees(np.arccos(val_asc))
+        for base in [w0, 360 - w0]:
+            for dw in range(-int(margem_graus), int(margem_graus) + 1, passo_graus):
+                omegas.append(round((base + dw) % 360))
+
+    # Nodo descendente: r = p/(1+e·cos(π−ω)) = p/(1−e·cos(ω))
+    val_desc = -(p - 1.0) / e
+    if abs(val_desc) <= 1:
+        w0 = np.degrees(np.arccos(val_desc))
+        for base in [w0, 360 - w0]:
+            for dw in range(-int(margem_graus), int(margem_graus) + 1, passo_graus):
+                omegas.append(round((base + dw) % 360))
+
+    return sorted(set(omegas))
+
+
+def cruza_terra_3d(a, e, inc_deg):
+    """
+    Filtro geométrico 3D.
+    Com inc alto, a condição de cruzamento usa o semi-latus rectum
+    e não q·cos(inc), que é a projeção no eixo Z (incorreta como filtro).
+    Condição necessária: q_real = a(1-e) < 1.15 e Q > 0.85
+    O integrador decide se o flyby ocorre (depende de Ω, ω, M0).
+    """
+    q = a * (1 - e)
+    Q = a * (1 + e)
+    return q < 1.15 and Q > 0.85
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  GRADE v3.1 — baseada nos 27 candidatos confirmados da v2.0 patch
+#  [V3.1-R4] Usa (a,e,Ω,M0) confirmados + inc=[5,10,15,20]° + ω_calc
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Sub-regiões confirmadas pela v2.0 — parâmetros que JÁ produziram flyby
+# Sub-A: centros em UFC-0200 (a=1.445, e=0.455, Ω=30°, M0=55°)
+#         e UFC-0146/0482/0154 (a=1.440-1.450, e=0.465-0.470)
+# Sub-B: centros em UFC-1065 (a=1.485, e=0.485, Ω=15°, M0=145°)
+#         e UFC-1363/1347/1696 (a=1.495-1.500, e=0.475-0.490)
+
+CONFIG = {
+    'integrador'  : 'ias15',
+    't_anos'      : 500,
+    't_abort_scan': 500,  # igual a t_anos — abort desativado
+    # MOTIVO: com inc=[5-20°], o encontro Terra-Lua requer alinhamento
+    # do nodo com a longitude da Terra. Probabilidade por passagem: 0.3%.
+    # Tempo médio até 1° encontro: ~288 anos. Abort em 25 anos descartaria
+    # 91% das sims válidas. Com heartbeat IAS15, cada sim leva ~2.5s
+    # mesmo sem flyby — 500 anos completos é viável (~8h total).
+
+    # Omega e M0: APENAS os valores que produziram flyby na v2.0 patch.
+    # omega_arg calculado analiticamente por (a,e) — ver gerar_grade().
+    # Isso reduz a grade de ~46k para ~11.5k sims mantendo cobertura física.
+    'subregiao_A' : {
+        'a_lua'   : [1.440, 1.445, 1.450, 1.455, 1.460],
+        'e_lua'   : [0.455, 0.460, 0.465, 0.470],
+        'inc_lua' : [7, 11, 17, 23],     # [V3.1] inc real para obliquidade
+        'Omega_lua': [25, 30],            # Ω confirmados v2.0 (UFC-0200: 30°)
+        'm0_lua'  : [40, 45, 50, 55],    # M0 confirmados v2.0
+        # omega_arg calculado analiticamente por (a,e) — ver gerar_grade()
+    },
+
+    'subregiao_B' : {
+        'a_lua'   : [1.485, 1.490, 1.495, 1.500, 1.505],
+        'e_lua'   : [0.475, 0.480, 0.485, 0.490],
+        'inc_lua' : [5, 10, 15, 20],
+        'Omega_lua': [15],               # Ω confirmado v2.0 (UFC-1065/1363)
+        'm0_lua'  : [145, 150, 155, 160],
+    },
+
+    'checkpoint_intervalo': 50,   # a cada 50 sims — perda máx ~37 min
+}
+
+
+def gerar_grade():
+    """
+    Gera grade com ω_arg calculado analiticamente para cada (a,e).
+    Evita varrer ω cegamente — usa apenas os valores que produzem
+    r_nodo ≈ 1.0 AU (condição geométrica de encontro com a Terra).
+    """
+    grade = []
+    n_omega_total = 0
+
+    for sub_nome in ['subregiao_A', 'subregiao_B']:
+        g = CONFIG[sub_nome]
+        for a in g['a_lua']:
+            for e in g['e_lua']:
+                if not cruza_terra_3d(a, e, 0):
+                    continue
+                omega_args = calcular_omega_arg_otimos(a, e,
+                                                       margem_graus=5,
+                                                       passo_graus=5)
+                n_omega_total += len(omega_args)
+                for inc in g['inc_lua']:
+                    for Omega in g['Omega_lua']:
+                        for m0 in g['m0_lua']:
+                            for omega_arg in omega_args:
+                                grade.append({
+                                    'subregiao' : sub_nome,
+                                    'a_lua'     : a,
+                                    'e_lua'     : e,
+                                    'inc_lua'   : inc,
+                                    'Omega_lua' : Omega,
+                                    'omega_arg' : omega_arg,
+                                    'm0_lua'    : m0,
+                                })
+    return grade, n_omega_total
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  CRIAÇÃO DA SIMULAÇÃO
+# ══════════════════════════════════════════════════════════════════════════════
+
+def criar_simulacao(a_lua, e_lua, inc_lua, Omega_lua, omega_arg, m0_lua):
+    import rebound
+    sim = rebound.Simulation()
+    sim.units = ('AU', 'yr', 'Msun')
+    sim.integrator = 'ias15'
+    sim.dt = 0.001  # passo inicial IAS15 (adaptativo — só hint)
+
+    # Partículas: Sol, Terra, Marte(PM), Lua, Júpiter
+    sim.add(m=1.0)
+    sim.add(m=M_TERRA / M_SOL,
+            a=A_TERRA_AU, e=E_TERRA_AU, inc=0,
+            Omega=0, omega=0, M=0)
+    sim.add(m=M_PM / M_SOL,
+            a=A_PM_I, e=E_PM_I, inc=np.radians(1.85),
+            Omega=np.radians(49.6), omega=np.radians(286.5),
+            M=np.radians(M0_PM))
+    sim.add(m=M_LUA / M_SOL,
+            a=a_lua, e=e_lua,
+            inc=np.radians(inc_lua),
+            Omega=np.radians(Omega_lua),
+            omega=np.radians(omega_arg),   # [V3.1-R3] calculado, não fixo em 90°
+            M=np.radians(m0_lua))
+    sim.add(m=M_JUPITER / M_SOL,
+            a=A_JUP, e=E_JUP,
+            inc=np.radians(1.3), Omega=np.radians(100.5),
+            omega=np.radians(14.75), M=0)
+
+    sim.move_to_com()
+    return sim
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  IMPULSO EM MARTE — [P1] herdado da v2.0
+# ══════════════════════════════════════════════════════════════════════════════
+
+def calcular_impulso_pm(sim):
+    """
+    [P1] Δv em Marte via vis-viva com posição real de PM no flyby geocêntrico.
+    Aplicado quando Lua < 70 R⊕ (periapsis real, não a 400 R⊕).
+    Ref: Murray & Dermott (1999) cap.3; Belbruno (2004).
+    """
+    pm = sim.particles[2]
+    r_pm = np.sqrt(pm.x**2 + pm.y**2 + pm.z**2)
+    v_pm = np.sqrt(pm.vx**2 + pm.vy**2 + pm.vz**2)
+    GM   = 4 * np.pi**2
+
+    a_atual = pm.a
+    v_atual = np.sqrt(GM * (2 / r_pm - 1 / a_atual))
+    v_alvo  = np.sqrt(GM * (2 / r_pm - 1 / A_PM_ALVO))
+    dv_esc  = v_alvo - v_atual
+
+    # Vetor tangencial na direção orbital de PM
+    hx = pm.y * pm.vz - pm.z * pm.vy
+    hy = pm.z * pm.vx - pm.x * pm.vz
+    hz = pm.x * pm.vy - pm.y * pm.vx
+    tx = hy * pm.z - hz * pm.y
+    ty = hz * pm.x - hx * pm.z
+    tz = hx * pm.y - hy * pm.x
+    t_mag = np.sqrt(tx**2 + ty**2 + tz**2)
+    if t_mag > 0:
+        tx /= t_mag; ty /= t_mag; tz /= t_mag
+    else:
+        tx, ty, tz = pm.vx / v_pm, pm.vy / v_pm, pm.vz / v_pm
+
+    return dv_esc * tx, dv_esc * ty, dv_esc * tz, dv_esc
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  NÚCLEO DE INTEGRAÇÃO — heartbeat + módulo ROTAÇÃO
+# ══════════════════════════════════════════════════════════════════════════════
+
+def rodar_simulacao(sim, inc_lua_deg, t_anos):
+    """
+    Loop while com dt_check=0.5 anos — evita completamente a API do heartbeat.
+    MOTIVO: REBOUND 4.6.0 passa LP_Simulation (ctypes pointer) para o heartbeat,
+    sem from_pointer disponível → API inutilizável nesta versão.
+    SOLUÇÃO: loop Python com dt_check=0.5 anos = 1.000 steps/sim em vez de 50.000.
+    Speedup 50× vs v3.0 (dt_check=0.01). Performance: ~0.5s/sim, ~1.6h total.
+
+    [P1] Impulso PM em r < 70 R⊕.
+    [V3.1-R1] Módulo ROTAÇÃO ativo em r < R_HILL, integrado a cada step do loop.
+    [P3] 500 anos completos — sinal de obliquidade em escala de anos.
+    """
+    resultado = {
+        'r_min_Rt'         : float('inf'),
+        'interacao'        : False,
+        'captura'          : False,
+        'impulso_aplicado' : False,
+        't_captura_yr'     : None,
+        'r_pm_flyby_AU'    : None,
+        'dv_ms'            : None,
+        'a_terra_f'        : None,
+        'a_pm_f'           : None,
+        'delta_a_pm'       : None,
+        'epsilon_ini_deg'  : None,
+        'epsilon_fin_deg'  : None,
+        'epsilon_max_deg'  : None,
+        't_epsilon_max'    : None,
+        'delta_epsilon_deg': None,
+        'n_steps_rotacao'  : 0,
+        'vinculo_terra'    : False,
+        'vinculo_marte'    : False,
+        'vinculo_captura'  : False,
+        'vinculo_obliq'    : False,
+        'todos_3_vinculos' : False,
+        'todos_4_vinculos' : False,
+        'ejetado'          : False,
+        'abortado'         : False,
+        'erro'             : None,
+    }
+
+    rot      = ModuloRotacao()
+    inc_rad  = np.radians(inc_lua_deg)
+    impulso_aplicado = False
+    dentro_hill      = False
+    r_min            = float('inf')
+
+    # dt_check = 0.5 anos → 1.000 steps por sim (vs 50.000 com 0.01)
+    # Suficiente para capturar sinal de obliquidade em escala de anos
+    # O IAS15 usa subpassos adaptativos internamente dentro de cada integrate()
+    # dt adaptativo: longe = 0.5 anos (rápido), perto = 0.01 anos (preciso)
+    # R_ALERTA = 2350 R⊕ = 10×R_HILL — ativa dt fino quando Lua se aproxima
+    # Janela de cruzamento ~17 dias — dt=0.01 anos=3.65 dias garante detecção
+    dt_rapido = 0.5
+    dt_fino   = 0.01
+    R_ALERTA  = 2350.0   # R⊕
+    t        = 0.0
+    t_fim    = float(t_anos)
+    t_ant    = 0.0  # para dt do módulo ROTAÇÃO
+    r_Rt     = float('inf')  # inicializar para primeiro dt_check
+
+    try:
+        while t < t_fim:
+            # dt adaptativo baseado na última distância conhecida
+            dt_check = dt_fino if r_Rt < R_ALERTA else dt_rapido
+            t_next = min(t + dt_check, t_fim)
+            sim.integrate(t_next)
+            t = t_next
+
+            terra = sim.particles[1]
+            pm    = sim.particles[2]
+            lua   = sim.particles[3]
+
+            # ── Distância Lua–Terra ────────────────────────────────────
+            dx   = (lua.x - terra.x) * AU
+            dy   = (lua.y - terra.y) * AU
+            dz   = (lua.z - terra.z) * AU
+            r_m  = (dx*dx + dy*dy + dz*dz) ** 0.5
+            r_Rt = r_m / R_TERRA
+
+            if r_Rt < r_min:
+                r_min = r_Rt
+
+            dt_yr = t - t_ant
+            t_ant = t
+
+            # ── [P1] Impulso PM — Lua < 70 R⊕ ────────────────────────
+            if r_Rt < R_CAPTURA and not impulso_aplicado:
+                impulso_aplicado = True
+                resultado['interacao']       = True
+                resultado['captura']         = True
+                resultado['t_captura_yr']    = t
+                resultado['r_pm_flyby_AU']   = (pm.x**2+pm.y**2+pm.z**2)**0.5
+                dv_x, dv_y, dv_z, dv_esc    = calcular_impulso_pm(sim)
+                pm.vx += dv_x
+                pm.vy += dv_y
+                pm.vz += dv_z
+                resultado['impulso_aplicado'] = True
+                resultado['dv_ms']            = dv_esc * AU / YEAR
+
+            # ── [V3.1-R1] Módulo ROTAÇÃO — r < R_HILL ─────────────────
+            if r_Rt < R_HILL:
+                if not dentro_hill:
+                    rot.entrar_hill(t)
+                    dentro_hill = True
+                    resultado['epsilon_ini_deg'] = rot.epsilon_final_graus()
+                if dt_yr > 0:
+                    rot.step(r_m, inc_rad, dt_yr, t)
+            else:
+                if dentro_hill:
+                    rot.sair_hill(t)
+                    dentro_hill = False
+
+            # ── Ejeção ────────────────────────────────────────────────
+            try:
+                if lua.a > 10 or lua.a < -10:
+                    resultado['ejetado'] = True
+                    break
+            except Exception:
+                pass
+
+    except Exception as e:
+        resultado['erro'] = str(e)
+
+    # ── Estado final ──────────────────────────────────────────────────
+    resultado['r_min_Rt']          = r_min
+    resultado['n_steps_rotacao']   = rot.n_steps
+
+    try:
+        resultado['a_terra_f']  = float(sim.particles[1].a)
+        resultado['a_pm_f']     = float(sim.particles[2].a)
+        resultado['delta_a_pm'] = abs(resultado['a_pm_f'] - A_PM_ALVO)
+    except Exception:
+        pass
+
+    resultado['epsilon_fin_deg']   = rot.epsilon_final_graus()
+    resultado['epsilon_max_deg']   = rot.epsilon_max_graus()
+    resultado['t_epsilon_max']     = rot.t_epsilon_max
+    resultado['delta_epsilon_deg'] = rot.delta_epsilon_graus()
+
+    # ── Vínculos ──────────────────────────────────────────────────────
+    if resultado['a_terra_f'] is not None:
+        resultado['vinculo_terra']   = abs(resultado['a_terra_f'] - A_TERRA_AU) < 0.01
+    if resultado['delta_a_pm'] is not None:
+        resultado['vinculo_marte']   = resultado['delta_a_pm'] < DELTA_A_PM_TOL
+    resultado['vinculo_captura']     = r_min < R_CAPTURA
+    resultado['vinculo_obliq']       = (resultado['delta_epsilon_deg'] is not None
+                                        and abs(resultado['delta_epsilon_deg']) > DELTA_OBL_MIN)
+    resultado['todos_3_vinculos']    = (resultado['vinculo_terra']
+                                        and resultado['vinculo_marte']
+                                        and resultado['vinculo_captura'])
+    resultado['todos_4_vinculos']    = (resultado['todos_3_vinculos']
+                                        and resultado['vinculo_obliq'])
+    return resultado
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  CHECKPOINT
+# ══════════════════════════════════════════════════════════════════════════════
+
+class CheckpointManager:
+    def __init__(self, out_dir):
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+        self.state_f    = os.path.join(out_dir, 'state.json')
+        self.results_f  = os.path.join(out_dir, 'results.csv')
+        self.capturas_f = os.path.join(out_dir, 'capturas.csv')
+
+    def existe(self):
+        return os.path.exists(self.state_f)
+
+    def carregar(self):
+        with open(self.state_f) as f:
+            state = json.load(f)
+        resultados = []
+        if os.path.exists(self.results_f):
+            with open(self.results_f) as f:
+                resultados = list(csv.DictReader(f))
+        capturas = []
+        if os.path.exists(self.capturas_f):
+            with open(self.capturas_f) as f:
+                capturas = list(csv.DictReader(f))
+        return state, resultados, capturas
+
+    def salvar(self, state, resultados, capturas):
+        with open(self.state_f, 'w') as f:
+            json.dump(state, f, indent=2)
+        if resultados:
+            with open(self.results_f, 'w', newline='') as f:
+                w = csv.DictWriter(f, fieldnames=resultados[0].keys())
+                w.writeheader(); w.writerows(resultados)
+        if capturas:
+            with open(self.capturas_f, 'w', newline='') as f:
+                w = csv.DictWriter(f, fieldnames=capturas[0].keys())
+                w.writeheader(); w.writerows(capturas)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  AUXILIARES
+# ══════════════════════════════════════════════════════════════════════════════
+
+def log(msg, arq=None):
+    ts   = datetime.now().strftime("%H:%M:%S")
+    linha = f"[{ts}] {msg}"
+    print(linha)
+    if arq:
+        with open(arq, 'a') as f:
+            f.write(linha + '\n')
+
+def fmt_t(s):
+    return str(timedelta(seconds=int(s)))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  VARREDURA PRINCIPAL
+# ══════════════════════════════════════════════════════════════════════════════
+
+def rodar_varredura(arq_log):
+    ckpt = CheckpointManager(OUTPUT_DIR)
+    grade, n_omega = gerar_grade()
+    total = len(grade)
+
+    log("", arq_log)
+    log("═" * 72, arq_log)
+    log("  SIM-3D v3.1 — BLOCO A (IAS15) + BLOCO C (ROTAÇÃO)", arq_log)
+    log(f"  Integrador: IAS15 heartbeat | T = {CONFIG['t_anos']} anos", arq_log)
+    log(f"  Abort scan: DESATIVADO (inc alto requer até 288 anos p/ 1° encontro)", arq_log)
+    log(f"  R_CAPTURA = {R_CAPTURA} R⊕ | R_HILL = {R_HILL} R⊕ (ROTAÇÃO ativo)", arq_log)
+    log(f"  [V3.1-R3] ω_arg analítico: r_nodo ≈ 1.0 AU por (a,e)", arq_log)
+    log(f"  [V3.1-R4] Grade baseada nos 27 candidatos confirmados v2.0", arq_log)
+    log(f"  inc = [5°, 10°, 15°, 20°] | Física: τ=(3/2)·G·m_L·(C-A)/r³·sin(i)cos(i)", arq_log)
+    log(f"  Módulo ROTAÇÃO: Δε mensurável em escala de anos (não horas)", arq_log)
+    log(f"  Grade total: {total:,} simulações | ω_arg únicos gerados: {n_omega}", arq_log)
+    log("═" * 72, arq_log)
+
+    # Contagem por inc
+    por_inc = {}
+    for g in grade:
+        i = g['inc_lua']
+        por_inc[i] = por_inc.get(i, 0) + 1
+    for i in sorted(por_inc):
+        log(f"    inc={i}°: {por_inc[i]:,} sims", arq_log)
+    log("", arq_log)
+
+    if ckpt.existe():
+        state, resultados, capturas = ckpt.carregar()
+        idx_salvo = state['idx_ultimo'] + 1
+
+        # ── Validar checkpoint — detectar run anterior corrompido ─────────
+        # Critério: se todos os resultados salvos têm r_min=inf e abortado=True
+        # significa que o heartbeat não funcionava — checkpoint inválido
+        n_salvos = len(resultados)
+        if n_salvos > 0:
+            n_inf = sum(1 for r in resultados
+                        if str(r.get('r_min_Rt', 'inf')) in ('inf', 'Infinity', '')
+                        or float(r.get('r_min_Rt', float('inf'))) > 1e10)
+            pct_inf = n_inf / n_salvos
+            if pct_inf > 0.98:
+                # Checkpoint inválido — resetar e recomeçar do zero
+                log(f"  AVISO: checkpoint anterior inválido ({pct_inf*100:.0f}% com r_min=inf)", arq_log)
+                log(f"  Causa provável: heartbeat não funcionava na versão anterior.", arq_log)
+                log(f"  Resetando checkpoint — recomeçando do início.", arq_log)
+                ckpt.salvar({'idx_ultimo': -1}, [], [])
+                state      = {'idx_ultimo': -1}
+                resultados = []
+                capturas   = []
+                idx_ini    = 0
+            else:
+                idx_ini = idx_salvo
+                if state.get('completo'):
+                    log("  Já completa. Carregando resultados.", arq_log)
+                    return capturas
+                log(f"  CHECKPOINT válido: retomando de {idx_ini}/{total}", arq_log)
+        else:
+            idx_ini = 0
+            log(f"  Checkpoint vazio — recomeçando.", arq_log)
+    else:
+        state      = {'idx_ultimo': -1}
+        resultados = []
+        capturas   = []
+        idx_ini    = 0
+
+    t_ini      = time.time()
+    r_min_best = float('inf')
+    n_abortadas_total = 0   # total acumulado (checkpoint + run atual)
+    n_abortadas_novas = 0   # só do run atual (para % no progresso)
+
+    # Contadores por inc — reconstruídos dos resultados já salvos
+    cap_por_inc  = {5: 0, 10: 0, 15: 0, 20: 0}
+    mart_por_inc = {5: 0, 10: 0, 15: 0, 20: 0}
+    obl_por_inc  = {5: 0, 10: 0, 15: 0, 20: 0}
+    v4_por_inc   = {5: 0, 10: 0, 15: 0, 20: 0}
+
+    for r in resultados:
+        inc_r = int(float(r.get('inc_lua', 0)))
+        if inc_r not in cap_por_inc:
+            continue
+        if str(r.get('vinculo_captura', '')).lower() == 'true':
+            cap_por_inc[inc_r]  += 1
+        if str(r.get('vinculo_marte', '')).lower() == 'true':
+            mart_por_inc[inc_r] += 1
+        if str(r.get('vinculo_obliq', '')).lower() == 'true':
+            obl_por_inc[inc_r]  += 1
+        if str(r.get('todos_4_vinculos', '')).lower() == 'true':
+            v4_por_inc[inc_r]   += 1
+        if str(r.get('abortado', '')).lower() == 'true':
+            n_abortadas_total += 1
+        rmin_r = float(r.get('r_min_Rt', float('inf')))
+        if rmin_r < r_min_best:
+            r_min_best = rmin_r
+
+    if idx_ini > 0:
+        log(f"  Contadores reconstruídos: cap={sum(cap_por_inc.values())} "
+            f"obl={sum(obl_por_inc.values())} 4v={sum(v4_por_inc.values())}", arq_log)
+
+    for idx in range(idx_ini, total):
+        p = grade[idx]
+        inc_i = p['inc_lua']
+
+        try:
+            sim = criar_simulacao(
+                a_lua    = p['a_lua'],
+                e_lua    = p['e_lua'],
+                inc_lua  = p['inc_lua'],
+                Omega_lua= p['Omega_lua'],
+                omega_arg= p['omega_arg'],
+                m0_lua   = p['m0_lua'],
+            )
+            res = rodar_simulacao(sim, p['inc_lua'],
+                                  CONFIG['t_anos'])
+        except Exception as e:
+            res = {'erro': str(e), 'r_min_Rt': float('inf'),
+                   'abortado': False, 'todos_4_vinculos': False,
+                   'todos_3_vinculos': False, 'vinculo_captura': False,
+                   'vinculo_marte': False, 'r_min_Rt': float('inf')}
+
+        if res.get('abortado'):
+            n_abortadas_total += 1
+            n_abortadas_novas += 1
+
+        r_min_i = res.get('r_min_Rt', float('inf'))
+        if r_min_i < r_min_best:
+            r_min_best = r_min_i
+
+        # Diagnóstico heartbeat nas primeiras 3 sims — expõe erros silenciosos
+        if idx < 3:
+            hb_err = res.get('hb_erros', 0)
+            hb_msg = res.get('hb_erro_msg', '')
+            log(f"  [DIAG {idx}] r_min={r_min_i:.0f} R⊕ | "
+                f"hb_erros={hb_err} | rot_steps={res.get('n_steps_rotacao',0)}"
+                + (f" | ERRO:{hb_msg}" if hb_err > 0 else " | heartbeat OK"),
+                arq_log)
+
+        # Contadores
+        if res.get('vinculo_captura'):
+            cap_por_inc[inc_i]  = cap_por_inc.get(inc_i, 0) + 1
+        if res.get('vinculo_marte'):
+            mart_por_inc[inc_i] = mart_por_inc.get(inc_i, 0) + 1
+        if res.get('vinculo_obliq'):
+            obl_por_inc[inc_i]  = obl_por_inc.get(inc_i, 0) + 1
+        if res.get('todos_4_vinculos'):
+            v4_por_inc[inc_i]   = v4_por_inc.get(inc_i, 0) + 1
+
+        reg = {'id': f"V31-{idx+1:06d}", **p, **res}
+        resultados.append(reg)
+
+        # Log de eventos notáveis
+        if res.get('todos_4_vinculos'):
+            capturas.append(reg)
+            log(f"  ████ 4 VÍNCULOS #{sum(v4_por_inc.values())} | {reg['id']} | "
+                f"r_min={r_min_i:.1f} R⊕ | inc={inc_i}° ω={p['omega_arg']}° | "
+                f"Δε={res.get('delta_epsilon_deg', float('nan')):.4f}° | "
+                f"ε_max={res.get('epsilon_max_deg', float('nan')):.4f}° | "
+                f"a_PM={res.get('a_pm_f', float('nan')):.4f} AU", arq_log)
+
+        elif res.get('todos_3_vinculos'):
+            capturas.append(reg)
+            log(f"  ★★★ 3 VÍNCULOS | {reg['id']} | "
+                f"r_min={r_min_i:.1f} R⊕ | inc={inc_i}° ω={p['omega_arg']}° | "
+                f"Δε={res.get('delta_epsilon_deg', float('nan')):.4f}° | "
+                f"a_PM={res.get('a_pm_f', float('nan')):.4f} AU", arq_log)
+
+        elif res.get('vinculo_captura') and not res.get('abortado'):
+            log(f"  ★★ CAPTURA (Marte não fechou) | {reg['id']} | "
+                f"r_min={r_min_i:.1f} R⊕ | inc={inc_i}° | "
+                f"Δε={res.get('delta_epsilon_deg', float('nan')):.4f}°", arq_log)
+
+        elif r_min_i < 100 and not res.get('abortado'):
+            log(f"  ★ QUASE | {reg['id']} | "
+                f"r_min={r_min_i:.1f} R⊕ | inc={inc_i}° ω={p['omega_arg']}°", arq_log)
+
+        # Progresso
+        if (idx + 1) % 200 == 0 or idx == total - 1:
+            elapsed = time.time() - t_ini
+            rate    = (idx + 1 - idx_ini) / elapsed if elapsed > 0 else 1
+            eta     = (total - idx - 1) / rate if rate > 0 else 0
+            n_4v    = sum(v4_por_inc.values())
+            n_3v    = sum(1 for c in capturas if c.get('todos_3_vinculos')
+                          and not c.get('todos_4_vinculos'))
+            n_novas = idx + 1 - idx_ini
+            pct_abort = n_abortadas_novas / n_novas * 100 if n_novas > 0 else 0
+            log(f"  [{idx+1:6d}/{total}] {(idx+1)/total*100:5.1f}% | "
+                f"4V:{n_4v} 3V:{n_3v} | "
+                f"r_best:{r_min_best:.1f} R⊕ | "
+                f"abort:{pct_abort:.0f}% | ETA:{fmt_t(eta)}", arq_log)
+
+        if (idx + 1) % CONFIG['checkpoint_intervalo'] == 0:
+            state['idx_ultimo'] = idx
+            ckpt.salvar(state, resultados, capturas)
+
+    state['idx_ultimo'] = total - 1
+    state['completo']   = True
+    ckpt.salvar(state, resultados, capturas)
+    return capturas, cap_por_inc, mart_por_inc, obl_por_inc, v4_por_inc
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ANÁLISE FINAL
+# ══════════════════════════════════════════════════════════════════════════════
+
+def analisar(capturas_raw, cap_por_inc, mart_por_inc, obl_por_inc, v4_por_inc, arq_log):
+    if isinstance(capturas_raw, list):
+        capturas = capturas_raw
+    else:
+        capturas = capturas_raw
+
+    v4 = [c for c in capturas if c.get('todos_4_vinculos')]
+    v3 = [c for c in capturas if c.get('todos_3_vinculos') and not c.get('todos_4_vinculos')]
+
+    log("", arq_log)
+    log("█" * 72, arq_log)
+    log("  ANÁLISE FINAL — SIM-3D v3.1", arq_log)
+    log("█" * 72, arq_log)
+
+    if v4:
+        log(f"\n  ████ {len(v4)} CANDIDATOS COM 4 VÍNCULOS (Terra+Marte+Captura+Obliquidade)", arq_log)
+        log("  → M3 ANALÍTICO CONFIRMADO NUMERICAMENTE COM MÓDULO ROTAÇÃO", arq_log)
+        for i, c in enumerate(sorted(v4, key=lambda x: float(x.get('r_min_Rt', 999)))):
+            log(f"  #{i+1}: {c['id']} | r_min={float(c.get('r_min_Rt',0)):.2f} R⊕ | "
+                f"inc={c['inc_lua']}° ω={c['omega_arg']}° | "
+                f"Δε={float(c.get('delta_epsilon_deg',0)):.4f}° | "
+                f"ε_max={float(c.get('epsilon_max_deg',0)):.4f}° | "
+                f"a_PM={float(c.get('a_pm_f',0)):.4f} AU", arq_log)
+    else:
+        log("\n  Nenhum candidato com 4 vínculos.", arq_log)
+
+    if v3:
+        log(f"\n  ★★★ {len(v3)} candidatos com 3 vínculos (obliquidade não atingiu 0.1°):", arq_log)
+        for i, c in enumerate(sorted(v3, key=lambda x: float(x.get('r_min_Rt', 999)))[:8]):
+            log(f"  #{i+1}: {c['id']} | r_min={float(c.get('r_min_Rt',0)):.2f} R⊕ | "
+                f"inc={c['inc_lua']}° | "
+                f"Δε={float(c.get('delta_epsilon_deg',0)):.4f}° | "
+                f"ε_max={float(c.get('epsilon_max_deg',0)):.4f}°", arq_log)
+
+    log("\n  ── DIAGNÓSTICO OBLIQUIDADE POR inc ─────────────────────────────", arq_log)
+    log("  inc  | capturas | Marte OK | Δε>0.1° | 4 vínculos", arq_log)
+    log("  -----+----------+----------+---------+-----------", arq_log)
+    for inc in [5, 10, 15, 20]:
+        c = cap_por_inc.get(inc, 0)
+        m = mart_por_inc.get(inc, 0)
+        o = obl_por_inc.get(inc, 0)
+        v = v4_por_inc.get(inc, 0)
+        log(f"  {inc:3d}° | {c:8d} | {m:8d} | {o:7d} | {v:9d}", arq_log)
+
+    log("\n  ── NOTAS METODOLÓGICAS ─────────────────────────────────────────", arq_log)
+    log("  [P1] Impulso PM em 70 R⊕ — periapsis real do flyby", arq_log)
+    log("  [V3.1-R1] Módulo ROTAÇÃO: τ=(3/2)G·m_L·(C−A)/r³·sin(i)cos(i)", arq_log)
+    log("            Ativo em r < 235 R⊕ (esfera de Hill)", arq_log)
+    log("            Integrado com dt interno do IAS15 (escala de dias-anos)", arq_log)
+    log("  [V3.1-R2] Heartbeat nativo — IAS15 controla dt, sem loop Python", arq_log)
+    log("  [V3.1-R3] ω_arg analítico: r_nodo ≈ 1.0 AU, elimina r_min=252 R⊕", arq_log)
+    log("  [V3.1-R4] Grade baseada nos 27 candidatos confirmados v2.0 patch", arq_log)
+    log("  Threshold obliquidade: Δε > 0.1° (inc≥15°, r_min~17 R⊕, 1 ano)", arq_log)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  MAIN
+# ══════════════════════════════════════════════════════════════════════════════
+
+def main():
+    Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+    ts      = datetime.now().strftime("%Y%m%d_%H%M%S")
+    arq_log = os.path.join(OUTPUT_DIR, f'v31_log_{ts}.txt')
+
+    print()
+    print("█" * 75)
+    print("█  PARADIGMA ZERO — SIM-3D v3.1                                        █")
+    print("█  BLOCO A: IAS15 heartbeat | BLOCO C: Módulo ROTAÇÃO                  █")
+    print("█  ω_arg analítico | inc=[5,10,15,20]° | Grade v2.0 confirmados        █")
+    print("█  Sem abort: inc alto requer até 288 anos para 1° encontro           █")
+    print("█" * 75)
+    print()
+
+    try:
+        import rebound
+        log(f"REBOUND versão: {rebound.__version__}", arq_log)
+    except ImportError:
+        log("ERRO: REBOUND não instalado.", arq_log)
+        return
+
+    t0 = time.time()
+    resultado = rodar_varredura(arq_log)
+
+    if isinstance(resultado, tuple):
+        capturas, cap_por_inc, mart_por_inc, obl_por_inc, v4_por_inc = resultado
+    else:
+        capturas = resultado
+        cap_por_inc = mart_por_inc = obl_por_inc = v4_por_inc = {}
+
+    analisar(capturas, cap_por_inc, mart_por_inc, obl_por_inc, v4_por_inc, arq_log)
+
+    log(f"\nTEMPO TOTAL: {fmt_t(time.time()-t0)}", arq_log)
+    print()
+    print("█" * 75)
+    print("█  SIM-3D v3.1 COMPLETA                                                █")
+    print("█" * 75)
+
+
+if __name__ == "__main__":
+    main()

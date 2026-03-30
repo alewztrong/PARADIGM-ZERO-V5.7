@@ -1,0 +1,111 @@
+
+███████████████████████████████████████████████████████████████████████████
+█                                                                         █
+█  PARADIGMA ZERO — SIM-3D-ULTRAFINA-COMPLEMENTAR v1.0                   █
+█  Região BAIXA | Duas sub-regiões promissoras                          █
+█  Centros: a=1.45/e=0.46 e a=1.50/e=0.48                               █
+█                                                                         █
+███████████████████████████████████████████████████████████████████████████
+
+[18:49:43] Diretório de saída: sim3d_ultrafina_comp
+[18:49:43] REBOUND versão: 4.6.0
+[18:49:43] 
+[18:49:43] ══════════════════════════════════════════════════════════════════════
+[18:49:43]   SIM-3D-ULTRAFINA-COMP: Região BAIXA
+[18:49:43]   Integrador: IAS15 | T = 500 anos
+[18:49:43]   R_INTERACAO = 400.0 R⊕ | R_CAPTURA = 70.0 R⊕
+[18:49:43]   Sub-região A: a=1.45, e=0.46, Ω=30°, M0=45°
+[18:49:43]   Sub-região B: a=1.50, e=0.48, Ω=15°, M0=150°
+[18:49:43] ══════════════════════════════════════════════════════════════════════
+[18:49:43]   Grade total: 1920 simulações
+[18:49:43]     subregiao_A: 960 simulações
+[18:49:43]     subregiao_B: 960 simulações
+[18:49:43] ══════════════════════════════════════════════════════════════════════
+[18:54:52]   ★★★ CANDIDATO COMPLETO #1 | UFC-0097 | r_min=46.2 R⊕ | a=1.440 e=0.465 inc=0.5°
+[18:55:02]   [  100/1920]   5.2% | Cap: 1 | Int: 57 | r_min_best: 46.2 R⊕ | ETA: 1:36:44
+[18:57:26]   ◆ MUITO PERTO | UFC-0147 | r_min=79.1 R⊕
+[19:00:19]   ◆ MUITO PERTO | UFC-0197 | r_min=77.3 R⊕
+[19:00:24]   [  200/1920]  10.4% | Cap: 1 | Int: 111 | r_min_best: 46.2 R⊕ | ETA: 1:31:46
+[19:00:25]   ◆ MUITO PERTO | UFC-0201 | r_min=87.6 R⊕
+[19:00:48]   ◆ MUITO PERTO | UFC-0209 | r_min=93.4 R⊕
+[19:02:20]   ◆ MUITO PERTO | UFC-0248 | r_min=90.8 R⊕
+[19:02:27]   ◆ MUITO PERTO | UFC-0252 | r_min=99.5 R⊕
+[19:04:13]   [  300/1920]  15.6% | Cap: 1 | Int: 203 | r_min_best: 46.2 R⊕ | ETA: 1:18:15
+[19:04:22]   ★ QUASE CAPTURA! | UFC-0304 | r_min=71.2 R⊕ | a=1.445 e=0.465 inc=1°
+[19:05:55]   ★ QUASE CAPTURA! | UFC-0342 | r_min=72.6 R⊕ | a=1.445 e=0.470 inc=0.5°
+[19:08:15]   ◆ MUITO PERTO | UFC-0387 | r_min=96.6 R⊕
+[19:08:25]   ◆ MUITO PERTO | UFC-0391 | r_min=96.4 R⊕
+[19:08:54]   [  400/1920]  20.8% | Cap: 1 | Int: 283 | r_min_best: 46.2 R⊕ | ETA: 1:12:52
+[19:13:36]   [  500/1920]  26.0% | Cap: 1 | Int: 357 | r_min_best: 46.2 R⊕ | ETA: 1:07:49
+[19:17:56]   [  600/1920]  31.2% | Cap: 1 | Int: 430 | r_min_best: 46.2 R⊕ | ETA: 1:02:03
+[19:18:46]   ★★★ CANDIDATO COMPLETO #2 | UFC-0625 | r_min=65.9 R⊕ | a=1.455 e=0.460 inc=0.5°
+[19:18:53]   ◆ MUITO PERTO | UFC-0629 | r_min=86.2 R⊕
+[19:19:05]   ◆ MUITO PERTO | UFC-0636 | r_min=99.7 R⊕
+[19:20:34]   ◆ MUITO PERTO | UFC-0678 | r_min=86.7 R⊕
+[19:20:50]   ◆ MUITO PERTO | UFC-0686 | r_min=99.9 R⊕
+[19:21:24]   [  700/1920]  36.5% | Cap: 2 | Int: 522 | r_min_best: 46.2 R⊕ | ETA: 0:55:12
+[19:25:37]   [  800/1920]  41.7% | Cap: 2 | Int: 598 | r_min_best: 46.2 R⊕ | ETA: 0:50:14
+[19:27:03]   ◆ MUITO PERTO | UFC-0826 | r_min=87.2 R⊕
+[19:30:57]   [  900/1920]  46.9% | Cap: 2 | Int: 662 | r_min_best: 46.2 R⊕ | ETA: 0:46:43
+[19:31:48]   ★★★ CANDIDATO COMPLETO #3 | UFC-0916 | r_min=63.6 R⊕ | a=1.460 e=0.470 inc=0.5°
+[19:32:35]   ◆ MUITO PERTO | UFC-0934 | r_min=95.5 R⊕
+[19:35:40]   [ 1000/1920]  52.1% | Cap: 3 | Int: 728 | r_min_best: 46.2 R⊕ | ETA: 0:42:16
+[19:36:19]   ◆ MUITO PERTO | UFC-1013 | r_min=96.1 R⊕
+[19:40:58]   [ 1100/1920]  57.3% | Cap: 3 | Int: 794 | r_min_best: 46.2 R⊕ | ETA: 0:38:12
+[19:41:49]   ◆ MUITO PERTO | UFC-1116 | r_min=98.3 R⊕
+[19:42:18]   ◆ MUITO PERTO | UFC-1125 | r_min=90.1 R⊕
+[19:46:25]   [ 1200/1920]  62.5% | Cap: 3 | Int: 849 | r_min_best: 46.2 R⊕ | ETA: 0:34:00
+[19:49:40]   ◆ MUITO PERTO | UFC-1253 | r_min=92.9 R⊕
+[19:52:26]   [ 1300/1920]  67.7% | Cap: 3 | Int: 896 | r_min_best: 46.2 R⊕ | ETA: 0:29:54
+[19:55:09]   ◆ MUITO PERTO | UFC-1345 | r_min=91.7 R⊕
+[19:55:15]   ★★★ CANDIDATO COMPLETO #4 | UFC-1347 | r_min=63.7 R⊕ | a=1.495 e=0.475 inc=0.5°
+[19:57:08]   [ 1400/1920]  72.9% | Cap: 4 | Int: 968 | r_min_best: 46.2 R⊕ | ETA: 0:25:02
+[19:57:09]   ◆ MUITO PERTO | UFC-1401 | r_min=97.9 R⊕
+[19:57:23]   ◆ MUITO PERTO | UFC-1406 | r_min=98.0 R⊕
+[19:58:48]   ★★★ CANDIDATO COMPLETO #5 | UFC-1442 | r_min=67.3 R⊕ | a=1.495 e=0.485 inc=0.5°
+[20:00:50]   ◆ MUITO PERTO | UFC-1493 | r_min=77.2 R⊕
+[20:01:02]   [ 1500/1920]  78.1% | Cap: 5 | Int: 1059 | r_min_best: 46.2 R⊕ | ETA: 0:19:58
+[20:02:26]   ◆ MUITO PERTO | UFC-1538 | r_min=87.1 R⊕
+[20:02:30]   ◆ MUITO PERTO | UFC-1539 | r_min=82.3 R⊕
+[20:04:25]   ★ QUASE CAPTURA! | UFC-1588 | r_min=72.0 R⊕ | a=1.500 e=0.480 inc=0.5°
+[20:04:36]   ★★★ CANDIDATO COMPLETO #6 | UFC-1594 | r_min=61.9 R⊕ | a=1.500 e=0.480 inc=0.5°
+[20:04:40]   ◆ MUITO PERTO | UFC-1595 | r_min=78.9 R⊕
+[20:04:45]   [ 1600/1920]  83.3% | Cap: 6 | Int: 1151 | r_min_best: 46.2 R⊕ | ETA: 0:15:00
+[20:06:02]   ◆ MUITO PERTO | UFC-1638 | r_min=77.4 R⊕
+[20:08:24]   [ 1700/1920]  88.5% | Cap: 6 | Int: 1242 | r_min_best: 46.2 R⊕ | ETA: 0:10:10
+[20:12:16]   ◆ MUITO PERTO | UFC-1779 | r_min=96.1 R⊕
+[20:13:35]   [ 1800/1920]  93.8% | Cap: 6 | Int: 1308 | r_min_best: 46.2 R⊕ | ETA: 0:05:35
+[20:16:07]   ★★★ CANDIDATO COMPLETO #7 | UFC-1843 | r_min=61.2 R⊕ | a=1.505 e=0.485 inc=1°
+[20:18:17]   ★ QUASE CAPTURA! | UFC-1878 | r_min=72.7 R⊕ | a=1.505 e=0.490 inc=0.5°
+[20:19:30]   [ 1900/1920]  99.0% | Cap: 7 | Int: 1356 | r_min_best: 46.2 R⊕ | ETA: 0:00:56
+[20:20:40]   [ 1920/1920] 100.0% | Cap: 7 | Int: 1365 | r_min_best: 46.2 R⊕ | ETA: 0:00:00
+[20:20:40] 
+[20:20:40] ══════════════════════════════════════════════════════════════════════
+[20:20:40]   VARREDURA COMPLETA
+[20:20:40]     Total: 1920 | Interações: 1365 | Capturas: 7
+[20:20:40]     Melhor r_min: 46.15 R⊕
+[20:20:40]     Parâmetros: a=1.440 e=0.465 inc=0.5° Ω=25° M0=40°
+[20:20:40] ══════════════════════════════════════════════════════════════════════
+[20:20:40] 
+[20:20:40] ██████████████████████████████████████████████████████████████████████
+[20:20:40]   ANÁLISE FINAL — SIM-3D-ULTRAFINA-COMP (REGIÃO BAIXA)
+[20:20:40] ██████████████████████████████████████████████████████████████████████
+[20:20:40] 
+[20:20:40]   🏆🏆🏆 7 CANDIDATOS COMPLETOS ENCONTRADOS! 🏆🏆🏆
+[20:20:40] 
+[20:20:40]   #1: UFC-0097 | r_min=46.15 R⊕ | a=1.440 e=0.465 inc=0.5°
+[20:20:40]   #2: UFC-1843 | r_min=61.20 R⊕ | a=1.505 e=0.485 inc=1.0°
+[20:20:40]   #3: UFC-1594 | r_min=61.89 R⊕ | a=1.500 e=0.480 inc=0.5°
+[20:20:40]   #4: UFC-0916 | r_min=63.63 R⊕ | a=1.460 e=0.470 inc=0.5°
+[20:20:40]   #5: UFC-1347 | r_min=63.67 R⊕ | a=1.495 e=0.475 inc=0.5°
+[20:20:40]   #6: UFC-0625 | r_min=65.91 R⊕ | a=1.455 e=0.460 inc=0.5°
+[20:20:40]   #7: UFC-1442 | r_min=67.31 R⊕ | a=1.495 e=0.485 inc=0.5°
+[20:20:40] 
+[20:20:40]   ✅✅✅ CAPTURA 3D INDEPENDENTE CONFIRMADA! ✅✅✅
+[20:20:40]   → Paper pronto para Nature Astronomy!
+[20:20:40] 
+[20:20:40] TEMPO TOTAL: 1:30:56
+
+███████████████████████████████████████████████████████████████████████████
+█  SIM-3D-ULTRAFINA-COMPLEMENTAR COMPLETA                                 █
+███████████████████████████████████████████████████████████████████████████
