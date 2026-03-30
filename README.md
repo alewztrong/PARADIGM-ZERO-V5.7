@@ -136,7 +136,7 @@ SIM-3D → 3D scanning and validation (63,200 integrations)
 
 ## Contact
 
-**Alexssandro A.**  
+**Alexssandro N.**  
 Independent Researcher — Osasco, SP, Brazil  
 📧 alex7ndo@gmail.com
 
